@@ -122,7 +122,7 @@ import qrkit
 import qrkit/render/ascii
 
 pub fn main() {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   io.println(ascii.to_string_compact(qr))
 }
 ```
@@ -132,24 +132,26 @@ Running the snippet above prints (the leading / trailing blank lines are the 4-m
 ```
 
 
-    █▀▀▀▀▀█  ▀█▄█ ▄▄▀ █▀▀▀▀▀█
-    █ ███ █ █▄▄██▄██▀ █ ███ █
-    █ ▀▀▀ █ ██ ▄ ▄█▄▀ █ ▀▀▀ █
-    ▀▀▀▀▀▀▀ █▄▀ █ ▀ █ ▀▀▀▀▀▀▀
-    ▀ █▀██▀▄▄█ ▄ ▄    ▀█▀▀▀▄
-      ▀▀▀█▀▀ ▄▀█▀█▀██▄█▄█▀ ▀█
-    ▄ █▄▀█▀ █▄  ▀ ▀▀▀▀▀▄▀▄▀█▀
-    █ ▀█▄▀▀    █▀ ▄█▀█ ██▀ ▀█
-    ▀ ▀  ▀▀▀█▄█▀▄▄▄▀█▀▀▀█▄▀
-    █▀▀▀▀▀█ ▄ █ ▄█▀▄█ ▀ █▄▀█▀
-    █ ███ █ █ █ ▀ ▀██▀█▀█▄█▄█
-    █ ▀▀▀ █ ▀▀▀█▀ ▄▀▄▀▄▄▄█▀ █
-    ▀▀▀▀▀▀▀ ▀▀▀▀   ▀ ▀▀▀▀▀▀▀▀
+    █▀▀▀▀▀█  ███▀  ▀▀█▀▀█ █▀▀▀▀▀█
+    █ ███ █ █ █▀▀ ▀ ▀▄▀█▀ █ ███ █
+    █ ▀▀▀ █ █▄▄▄████▄▄▄▀▀ █ ▀▀▀ █
+    ▀▀▀▀▀▀▀ █▄▀ ▀▄▀▄█ ▀ ▀ ▀▀▀▀▀▀▀
+    █ █▀██▀▄▄█▄█▀ ▀▀▀█▄▄█ ███▀▀ ▄
+    █ ▀ ▀▄▀█▀█▄▀█ ▄█▀▀ ▄▀   ▀▄ ▄
+     ▄▄▄▀▀▀▀▄▄  ▄▄▄▀▀▀ ▄█▄▄▄▄▀▀ ▄
+    ▄ ▄█▀▄▀██▄▄█▄█▀▀ ▀█▄██▄▄█▀▀▄
+    ▄ ▀██ ▀ ▀▄▄ ▀ ▀▀▀▀ █ █▄█▄▀█ ▄
+    █ ▄█▄ ▀  ▀▀█  ▄█▀▀▀ █▄█▀▀ ▀▄
+    ▀    ▀▀ ▄ ▀█▄▄▄▀▀██▀█▀▀▀█▄███
+    █▀▀▀▀▀█ ▄▄ ███▀▀█▀ ██ ▀ █▀▀ ▄
+    █ ███ █ █▀ █▀▄▀ ▄█▄▄█▀▀▀▀▄██▄
+    █ ▀▀▀ █ ▀▄█▄▄▀▀█▀▀▄▀██▀█▀█▀█
+    ▀▀▀▀▀▀▀ ▀▀▀ ▀▀ ▀ ▀ ▀  ▀▀▀ ▀
 
 
 ```
 
-This block is scannable directly from the terminal screen with a phone camera. For dark-themed terminals call `ascii.with_inverse(qr)` instead, and for double-width pixels use `ascii.to_string(qr)`.
+This block is scannable directly from the terminal screen with a phone camera — the QR decodes to https://github.com/sponsors/nao1215. For dark-themed terminals call `ascii.with_inverse(qr)` instead, and for double-width pixels use `ascii.to_string(qr)`.
 
 ## WiFi credentials
 

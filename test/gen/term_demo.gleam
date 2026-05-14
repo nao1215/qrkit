@@ -6,7 +6,7 @@ import qrkit
 import qrkit/render/ascii
 
 pub fn main() -> Nil {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
 
   io.println("=== to_string (light terminal) ===")
   io.println(ascii.to_string(qr))
