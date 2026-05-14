@@ -271,9 +271,13 @@ pub fn business_card_qr() -> String {
 }
 ```
 
+Micro QR is not universally supported by consumer scanner apps; confirm against the target reader before relying on it.
+
 ## rMQR (rectangular Micro QR)
 
 ISO/IEC 23941 defines 32 rectangular sizes from 7×43 to 17×139, with only Medium and High error correction levels. Useful for narrow labels and packaging.
+
+Reader support for rMQR is narrower than Micro QR — many consumer scanner apps do not recognise the rectangular symbol family. Check the deployment target before choosing it.
 
 ```gleam
 import qrkit
@@ -309,6 +313,8 @@ pub fn split_long_message() -> List(String) {
 ```
 
 When the payload already fits in one symbol at `max_version`, the returned list contains a single QR without the Structured Append header.
+
+Structured Append reader support varies in practice — some scanner apps decode each symbol independently rather than stitching the payload back together. Verify against the target reader before relying on it.
 
 ## Force a single encoding mode
 
@@ -357,17 +363,18 @@ Full API reference: <https://hexdocs.pm/qrkit/>.
 
 ## Scope and non-goals
 
-- qrkit is an **encoder only**. There is no QR decoder in the library, so things like image input, finder-pattern detection, perspective correction, RS error correction, and decoder-side fuzzing are out of scope.
+- qrkit is an **encoder only**. Image parsing and QR decoding are out of scope.
 - Kanji segmentation uses a focused Shift-JIS subset (hiragana, katakana, full-width ASCII, basic punctuation). Codepoints outside that subset fall back to Byte mode, which is still spec-valid but slightly larger.
 - Model 1 QR (the pre-1997 specification) is not implemented; only Model 2 (ISO/IEC 18004:2015), Micro QR, and rMQR.
 - The encoder does not normalise input (no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL-truncation). Whatever string you pass is the exact byte sequence that lands in the symbol's Byte segment.
+- A QR that encodes successfully is not guaranteed to scan in every environment. Real-world readability also depends on the quiet zone, contrast, module size, rendering or print scale, the output medium, and the scanner implementation. Test the chosen output against the target devices before deployment.
 
 ## Safety notes
 
 - `qrkit` does not sanity-check the payload — if you stuff `javascript:` URIs, otpauth secrets, or attacker-controlled text into a QR, the receiving app will get exactly that. Validate before encoding.
-- The SVG renderer HTML-escapes caller-supplied `dark_color` / `light_color` strings so a hostile colour cannot break out of the `fill="..."` attribute. Inline the returned `<svg>` only into trusted contexts; for general HTML pages, prefer a sanitiser like DOMPurify on the embed.
+- The SVG renderer escapes caller-supplied `dark_color` / `light_color` values so a hostile colour cannot break out of the `fill="..."` attribute. That is the only escaping it performs; the surrounding `<svg>` document is not a sanitiser. Treat the output as untrusted markup when embedding it into arbitrary HTML, and pass it through a sanitiser such as DOMPurify on that boundary.
 - The library writes payload data into the matrix as-is. `EncodeError` variants never contain the input payload except for `UnsupportedCharacter`, which reports the single offending character; if that is a privacy concern (e.g., the QR carried a TOTP secret) handle the error before logging.
-- All public entry points return `Result` — no `panic`, no `let assert` in `src/`. Pathological inputs surface as `DataExceedsCapacity` or `InvalidVersion`, not as runtime crashes.
+- Every public entry point returns `Result(_, EncodeError)`. Invalid or unsupported input surfaces as a typed error variant (`DataExceedsCapacity`, `InvalidVersion`, …) rather than a runtime crash.
 
 ## License
 
