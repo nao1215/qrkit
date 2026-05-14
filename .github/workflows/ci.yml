@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Format / Lint / Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: extractions/setup-just@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          gleam-version: "1.15.2"
+      - name: Download dependencies
+        run: just deps
+      - name: Format check
+        run: just format-check
+      - name: Type check
+        run: just typecheck
+      - name: Lint
+        run: just lint
+
+  build-and-test:
+    name: Build and test (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [erlang, javascript]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: extractions/setup-just@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          gleam-version: "1.15.2"
+      - name: Set up Node.js
+        if: matrix.target == 'javascript'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Download dependencies
+        run: just deps
+      - name: Build
+        run: just build-${{ matrix.target }}
+      - name: Test
+        run: just test-${{ matrix.target }}

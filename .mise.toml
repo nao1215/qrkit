@@ -1,0 +1,5 @@
+[tools]
+erlang = "28.4.1"
+gleam = "1.15.2"
+rebar = "latest"
+node = "22"
