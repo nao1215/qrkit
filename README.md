@@ -28,7 +28,7 @@ import qrkit
 import qrkit/render/ascii
 
 pub fn main() {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   io.println(ascii.to_string(qr))
 }
 ```
@@ -43,7 +43,7 @@ import qrkit/error
 
 pub fn high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
-    qrkit.new("https://nao1215.dev")
+    qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_ecc(error.Quartile)
     |> qrkit.with_min_version(3)
     |> qrkit.with_eci(26)
@@ -61,7 +61,7 @@ import qrkit
 import qrkit/render/svg
 
 pub fn render_svg() -> String {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   svg.to_string(qr, svg.default_options())
 }
 ```
@@ -81,7 +81,7 @@ pub fn dark_themed_svg() -> String {
     |> svg.with_light_color("#0f172a")
     |> svg.with_background(True)
 
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   svg.to_string(qr, options)
 }
 ```
@@ -93,7 +93,7 @@ import qrkit
 import qrkit/render/png
 
 pub fn render_png_bytes() -> BitArray {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   png.to_bit_array(qr, scale: 8, margin: 4)
 }
 ```
@@ -106,7 +106,7 @@ import qrkit/render/png
 import simplifile
 
 pub fn save_png() -> Result(Nil, simplifile.FileError) {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   png.to_bit_array(qr, scale: 8, margin: 4)
   |> simplifile.write_bits("qr.png", _)
 }
@@ -282,7 +282,7 @@ import qrkit/render/svg
 
 pub fn label_qr() -> String {
   let assert Ok(qr) =
-    qrkit.new("https://nao1215.dev")
+    qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_symbol(error.Rectangular)
     |> qrkit.with_ecc(error.Medium)
     |> qrkit.build()

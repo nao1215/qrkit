@@ -18,7 +18,7 @@ import qrkit/render/svg
 // ---------------------------------------------------------------------------
 
 fn readme_hello_qr() -> qrkit.QrCode {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   qr
 }
 
@@ -35,7 +35,7 @@ pub fn readme_hello_qr_test() -> Nil {
 
 fn readme_high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
-    qrkit.new("https://nao1215.dev")
+    qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_ecc(error.Quartile)
     |> qrkit.with_min_version(3)
     |> qrkit.with_eci(26)
@@ -56,7 +56,7 @@ pub fn readme_high_density_qr_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 fn readme_render_svg() -> String {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   svg.to_string(qr, svg.default_options())
 }
 
@@ -77,7 +77,7 @@ fn readme_dark_themed_svg() -> String {
     |> svg.with_light_color("#0f172a")
     |> svg.with_background(True)
 
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   svg.to_string(qr, options)
 }
 
@@ -94,7 +94,7 @@ pub fn readme_dark_themed_svg_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 fn readme_render_png_bytes() -> BitArray {
-  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
   png.to_bit_array(qr, scale: 8, margin: 4)
 }
 
@@ -277,7 +277,7 @@ pub fn readme_business_card_qr_test() -> Nil {
 
 fn readme_label_qr() -> String {
   let assert Ok(qr) =
-    qrkit.new("https://nao1215.dev")
+    qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_symbol(error.Rectangular)
     |> qrkit.with_ecc(error.Medium)
     |> qrkit.build()

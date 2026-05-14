@@ -28,7 +28,7 @@ pub fn encode_returns_square_symbol_test() -> Nil {
 
 pub fn builder_accepts_explicit_ecc_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("https://nao1215.dev")
+    qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_ecc(error.Quartile)
     |> qrkit.build()
 
