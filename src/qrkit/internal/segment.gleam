@@ -36,17 +36,29 @@ pub fn bits(segment: Segment) -> Int {
 
 pub fn optimise(
   text: String,
-  _version: Int,
+  version: Int,
   preference: ModePreference,
 ) -> Result(List(Segment), EncodeError) {
   case preference {
     ForceByte -> Ok([build_segment(Byte, text, 0)])
-    Auto ->
-      Ok(
+    Auto -> {
+      let greedy =
         util.characters(text)
         |> greedy_segments(0, [], None)
-        |> normalise_segments,
-      )
+        |> normalise_segments
+      let single_byte = [build_segment(Byte, text, 0)]
+      // Greedy segmentation can be worse than encoding everything as Byte for
+      // mixed payloads (vCard, JSON, etc.) because every mode switch costs
+      // 4 bits + a character-count indicator. Compare the two and keep the
+      // cheaper option.
+      case
+        encoded_bits(greedy, version, None)
+        <= encoded_bits(single_byte, version, None)
+      {
+        True -> Ok(greedy)
+        False -> Ok(single_byte)
+      }
+    }
   }
 }
 

@@ -225,11 +225,15 @@ fn wifi_security_name(security: WifiSecurity) -> String {
 }
 
 fn escape_wifi(value: String) -> String {
+  // Per the Apple Engineering / ZXing WIFI URI grammar, the reserved characters
+  // are backslash, semicolon, comma, colon, and double quote. Escape backslash
+  // first to avoid double-escaping the prefixes we add below.
   value
   |> string.replace(each: "\\", with: "\\\\")
   |> string.replace(each: ";", with: "\\;")
   |> string.replace(each: ",", with: "\\,")
   |> string.replace(each: ":", with: "\\:")
+  |> string.replace(each: "\"", with: "\\\"")
 }
 
 fn option_line(key: String, value: Option(String)) -> Option(String) {

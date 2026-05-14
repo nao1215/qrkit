@@ -51,6 +51,42 @@ pub fn wifi_content_helper_test() -> Nil {
   |> should.equal("WIFI:T:WPA2;S:MyAP;P:secret;;")
 }
 
+pub fn wifi_escapes_reserved_chars_test() -> Nil {
+  // Per the Apple Engineering / ZXing WIFI URI grammar, `\`, `;`, `,`, `:`,
+  // and `"` must be backslash-escaped inside SSID and password fields.
+  content.wifi(
+    ssid: "Cafe \"Espresso\"",
+    password: "p;w:d,\\\"",
+    security: content.Wpa2,
+    hidden: False,
+  )
+  |> should.equal(
+    "WIFI:T:WPA2;S:Cafe \\\"Espresso\\\";P:p\\;w\\:d\\,\\\\\\\";;",
+  )
+}
+
+pub fn mixed_content_falls_back_to_byte_mode_test() -> Nil {
+  // A 207-byte vCard payload used to overflow because greedy segmentation
+  // accumulated too many mode switches; the encoder now falls back to a
+  // single Byte segment when that is cheaper.
+  let payload =
+    content.vcard()
+    |> content.with_name("Naohiro Chikamatsu")
+    |> content.with_organization("Open Source")
+    |> content.with_title("Software Engineer")
+    |> content.with_email("nao@example.com")
+    |> content.with_phone("+81-90-0000-0000")
+    |> content.with_url("https://github.com/nao1215")
+    |> content.with_address("Tokyo, Japan")
+    |> content.vcard_to_string
+  let assert Ok(qr) =
+    qrkit.new(payload) |> qrkit.with_ecc(error.Quartile) |> qrkit.build
+  qrkit.symbol(qr)
+  |> should.equal(error.Standard)
+  { qrkit.version(qr) <= 40 }
+  |> should.be_true
+}
+
 pub fn vcard_content_helper_test() -> Nil {
   content.vcard()
   |> content.with_name("Nao")
@@ -181,6 +217,80 @@ pub fn mask_selection_reference_matrix_test() -> Nil {
     "100000100110010100100",
     "111111101100010010010",
   ])
+}
+
+pub fn v2_alignment_matches_reference_test() -> Nil {
+  // Captured from the npm `qrcode` library for "HELLO WORLD" at version 2, ECC M.
+  // Regression: prior to alignment_positions / expand_alignment_coords fixes,
+  // qrkit drew spurious alignment patterns over the top-right and bottom-left
+  // finder patterns.
+  let assert Ok(qr) =
+    qrkit.new("HELLO WORLD")
+    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_min_version(2)
+    |> qrkit.build
+
+  qrkit.version(qr)
+  |> should.equal(2)
+  qrkit.size(qr)
+  |> should.equal(25)
+  qr
+  |> qrkit.rows
+  |> rows_to_strings
+  |> should.equal([
+    "1111111000101010001111111",
+    "1000001011110100001000001",
+    "1011101000011001001011101",
+    "1011101001110100101011101",
+    "1011101011110100101011101",
+    "1000001000100011101000001",
+    "1111111010101010101111111",
+    "0000000000101001000000000",
+    "1010101000011000100010010",
+    "0011110000101101110010110",
+    "1000101000011011101001100",
+    "1110010100001110100011001",
+    "1011101011100011001011111",
+    "0100000001110011000100001",
+    "1010101011100100010011000",
+    "0111010110110001011001010",
+    "1010101010101000111110001",
+    "0000000010111101100010101",
+    "1111111001111010101011100",
+    "1000001001001110100010100",
+    "1011101011110011111110111",
+    "1011101001010011101010010",
+    "1011101010100101001010101",
+    "1000001000010000010100111",
+    "1111111011101000111111101",
+  ])
+}
+
+pub fn v7_decodes_to_input_text_test() -> Nil {
+  // Regression: pre-fix qrkit also missed alignment patterns on the lower-left
+  // half of the symbol (the iteration shrank `cols` instead of `rows`), so any
+  // version 7+ symbol had the wrong number of alignment patterns and was
+  // unreadable. This test pins the v7 module count.
+  let assert Ok(qr) =
+    qrkit.new("HELLO")
+    |> qrkit.with_min_version(7)
+    |> qrkit.build
+
+  qrkit.version(qr)
+  |> should.equal(7)
+  qrkit.size(qr)
+  |> should.equal(45)
+
+  // Centre alignment (22, 22) must be dark.
+  qrkit.module_at(qr, 22, 22)
+  |> should.equal(True)
+  // Off-centre alignment-pattern corners around (22, 22) — the 5x5 pattern
+  // has dark outer ring + light interior + dark centre, so (20, 22) (top
+  // edge of the pattern) is dark, (21, 22) (one inside) is light.
+  qrkit.module_at(qr, 22, 20)
+  |> should.equal(True)
+  qrkit.module_at(qr, 22, 21)
+  |> should.equal(False)
 }
 
 pub fn micro_qr_m2_produces_13x13_test() -> Nil {

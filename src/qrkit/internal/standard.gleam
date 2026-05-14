@@ -676,7 +676,7 @@ fn alignment_positions(chosen_version: Int) -> List(#(Int, Int)) {
             False -> ceil_div(size - 13, 2 * count - 2) * 2
           }
           let coords = alignment_row_col_coords(size, count, step, [6])
-          expand_alignment_coords(coords, [])
+          expand_alignment_coords(coords, coords, size, [])
         }
         Error(_) -> []
       }
@@ -700,35 +700,46 @@ fn alignment_row_col_coords(
 }
 
 fn expand_alignment_coords(
-  coords: List(Int),
+  rows: List(Int),
+  cols: List(Int),
+  size: Int,
   acc: List(#(Int, Int)),
 ) -> List(#(Int, Int)) {
-  case coords {
+  case rows {
     [] -> acc
     [row, ..rest] ->
-      expand_alignment_coords(rest, expand_alignment_row(row, coords, acc))
+      expand_alignment_coords(
+        rest,
+        cols,
+        size,
+        expand_alignment_row(row, cols, size, acc),
+      )
   }
 }
 
 fn expand_alignment_row(
   row: Int,
-  coords: List(Int),
+  cols: List(Int),
+  size: Int,
   acc: List(#(Int, Int)),
 ) -> List(#(Int, Int)) {
-  case coords {
+  case cols {
     [] -> acc
     [col, ..rest] ->
-      case finder_overlap(row, col, list.length(coords)) {
-        True -> expand_alignment_row(row, rest, acc)
-        False -> expand_alignment_row(row, rest, [#(row, col), ..acc])
+      case finder_overlap(row, col, size) {
+        True -> expand_alignment_row(row, rest, size, acc)
+        False -> expand_alignment_row(row, rest, size, [#(row, col), ..acc])
       }
   }
 }
 
-fn finder_overlap(row: Int, col: Int, _count: Int) -> Bool {
+fn finder_overlap(row: Int, col: Int, size: Int) -> Bool {
+  let corner = size - 7
+  // Skip alignment-pattern centres that coincide with a finder pattern
+  // (top-left, top-right, bottom-left).
   { row == 6 && col == 6 }
-  || { row == 6 && col == 0 }
-  || { row == 0 && col == 6 }
+  || { row == 6 && col == corner }
+  || { row == corner && col == 6 }
 }
 
 fn ceil_div(numerator: Int, denominator: Int) -> Int {
