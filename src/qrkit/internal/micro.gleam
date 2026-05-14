@@ -71,11 +71,12 @@ const format_info_table: List(Int) = [
 
 /// Encode `text` into a Micro QR code.
 ///
-/// `requested_version` is `Some(N)` when the caller explicitly asked for a
-/// floor via `qrkit.with_min_version(N)`, in which case the encoder uses N
-/// as a strict version (any mode/ECC/capacity mismatch surfaces as an
-/// `Error`). When `requested_version` is `None`, the encoder picks the
-/// smallest version that fits the payload.
+/// `requested_version` is `Some(N)` when the caller explicitly pinned the
+/// version via `qrkit.with_exact_version(N)` (or the legacy
+/// `with_min_version(N)` alias), in which case the encoder uses N as a strict
+/// version (any mode/ECC/capacity mismatch surfaces as an `Error`). When
+/// `requested_version` is `None`, the encoder picks the smallest version that
+/// fits the payload.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,

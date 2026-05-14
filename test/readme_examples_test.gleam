@@ -38,7 +38,7 @@ fn readme_high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.with_min_version(4)
+    |> qrkit.with_exact_version(4)
     |> qrkit.with_eci(26)
     |> qrkit.build()
   qr
@@ -48,7 +48,7 @@ pub fn readme_high_density_qr_test() -> Nil {
   let qr = readme_high_density_qr()
   qrkit.error_correction(qr)
   |> should.equal(types.Quartile)
-  // with_min_version is now a strict floor; we asked for v4 and must get v4.
+  // with_exact_version pins the symbol version.
   qrkit.version(qr)
   |> should.equal(4)
 }
@@ -214,8 +214,8 @@ pub fn readme_content_helpers_test() -> Nil {
 fn readme_meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
   content.event(
     title: "Sync",
-    start_unix: 1_778_745_600,
-    end_unix: 1_778_749_200,
+    start_unix: 1_778_752_800,
+    end_unix: 1_778_756_400,
   )
   |> content.with_location("Online")
   |> content.with_description("Project sync meeting")
@@ -228,16 +228,31 @@ pub fn readme_meeting_qr_test() -> Nil {
   Nil
 }
 
+pub fn readme_meeting_qr_payload_matches_documented_times_test() -> Nil {
+  content.event(
+    title: "Sync",
+    start_unix: 1_778_752_800,
+    end_unix: 1_778_756_400,
+  )
+  |> content.with_location("Online")
+  |> content.with_description("Project sync meeting")
+  |> content.event_to_string
+  |> should.equal(
+    "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:Sync\nDTSTART:20260514T100000Z\nDTEND:20260514T110000Z\nLOCATION:Online\nDESCRIPTION:Project sync meeting\nEND:VEVENT\nEND:VCALENDAR",
+  )
+}
+
 // ---------------------------------------------------------------------------
 // README: Inspect the matrix
 // ---------------------------------------------------------------------------
 
 fn readme_describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
+  let assert Ok(top_left) = qrkit.module_at(qr, 0, 0)
   #(
     qrkit.version(qr),
     qrkit.size(qr),
     qrkit.error_correction_designator(qrkit.error_correction(qr)),
-    qrkit.module_at(qr, 0, 0),
+    top_left,
   )
 }
 
@@ -265,7 +280,7 @@ fn readme_business_card_qr() -> String {
   let assert Ok(qr) =
     qrkit.new("01234567")
     |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_min_version(2)
+    |> qrkit.with_exact_version(2)
     |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 

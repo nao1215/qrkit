@@ -5,6 +5,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import gleam/uri
 
 /// Return a URL payload unchanged.
 pub fn url(href: String) -> String {
@@ -105,14 +106,14 @@ pub fn vcard_to_string(card: VCard) -> String {
   [
     Some("BEGIN:VCARD"),
     Some("VERSION:3.0"),
-    option_line("N", name),
-    option_line("FN", name),
-    option_line("ORG", organization),
-    option_line("TITLE", title),
-    option_line("TEL", phone),
-    option_line("EMAIL", email),
-    option_line("URL", url),
-    option_line("ADR", address),
+    option_line_with("N", name, escape_vcard),
+    option_line_with("FN", name, escape_vcard),
+    option_line_with("ORG", organization, escape_vcard),
+    option_line_with("TITLE", title, escape_vcard),
+    option_line_with("TEL", phone, escape_vcard),
+    option_line_with("EMAIL", email, escape_vcard),
+    option_line_with("URL", url, escape_vcard),
+    option_line_with("ADR", address, escape_vcard),
     Some("END:VCARD"),
   ]
   |> present_lines([])
@@ -128,9 +129,9 @@ pub fn email(
   "mailto:"
   <> to
   <> "?subject="
-  <> url_encode(subject)
+  <> percent_encode(subject)
   <> "&body="
-  <> url_encode(body)
+  <> percent_encode(body)
 }
 
 /// Build an SMS payload.
@@ -209,8 +210,8 @@ pub fn event_to_string(event: CalendarEvent) -> String {
     Some("SUMMARY:" <> escape_ical(title)),
     Some(start_key <> ":" <> start_value),
     Some(end_key <> ":" <> end_value),
-    option_line("LOCATION", location),
-    option_line("DESCRIPTION", description),
+    option_line_with("LOCATION", location, escape_ical),
+    option_line_with("DESCRIPTION", description, escape_ical),
     Some("END:VEVENT"),
     Some("END:VCALENDAR"),
   ]
@@ -240,9 +241,13 @@ fn escape_wifi(value: String) -> String {
   |> string.replace(each: "\"", with: "\\\"")
 }
 
-fn option_line(key: String, value: Option(String)) -> Option(String) {
+fn option_line_with(
+  key: String,
+  value: Option(String),
+  escape: fn(String) -> String,
+) -> Option(String) {
   case value {
-    Some(value) -> Some(key <> ":" <> value)
+    Some(value) -> Some(key <> ":" <> escape(value))
     None -> None
   }
 }
@@ -255,10 +260,16 @@ fn present_lines(lines: List(Option(String)), acc: List(String)) -> List(String)
   }
 }
 
-fn url_encode(value: String) -> String {
+fn percent_encode(value: String) -> String {
+  uri.percent_encode(value)
+}
+
+fn escape_vcard(value: String) -> String {
   value
-  |> string.replace(each: " ", with: "%20")
-  |> string.replace(each: "\n", with: "%0A")
+  |> string.replace(each: "\\", with: "\\\\")
+  |> string.replace(each: "\n", with: "\\n")
+  |> string.replace(each: ",", with: "\\,")
+  |> string.replace(each: ";", with: "\\;")
 }
 
 fn escape_ical(value: String) -> String {

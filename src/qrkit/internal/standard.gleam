@@ -27,8 +27,9 @@ pub opaque type Encoded {
 
 /// Encode `text` as a Standard QR code.
 ///
-/// `min_version` is `Some(N)` when the caller explicitly asked for a floor
-/// via `qrkit.with_min_version(N)`; in that case the encoder uses N as a
+/// `min_version` is `Some(N)` when the caller explicitly pinned the version
+/// via `qrkit.with_exact_version(N)` (or the legacy `with_min_version(N)`
+/// alias); in that case the encoder uses N as a
 /// strict version (a capacity overflow at N returns `Error` instead of
 /// promoting to a larger version). When `min_version` is `None`, the
 /// encoder picks the smallest version in 1..40 that fits the payload.

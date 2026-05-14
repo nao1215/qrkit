@@ -12,6 +12,9 @@ const crc32_polynomial = 0xEDB88320
 const adler32_modulus = 65_521
 
 /// Render a QR code as PNG bytes.
+///
+/// `scale` values less than 1 are normalised to 1, and negative `margin`
+/// values are normalised to 0.
 pub fn to_bit_array(
   qr: qrkit.QrCode,
   scale scale: Int,

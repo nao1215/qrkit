@@ -21,15 +21,31 @@ pub fn default_options() -> SvgOptions {
 }
 
 /// Set the SVG module size.
+///
+/// Values less than 1 are normalised to 1 to keep the rendered output usable.
 pub fn with_module_size(options: SvgOptions, px: Int) -> SvgOptions {
   let SvgOptions(_, margin, dark_color, light_color, background) = options
-  SvgOptions(px, margin, dark_color, light_color, background)
+  SvgOptions(
+    positive_or(px, default: 1),
+    margin,
+    dark_color,
+    light_color,
+    background,
+  )
 }
 
 /// Set the quiet-zone margin in modules.
+///
+/// Negative values are normalised to 0.
 pub fn with_margin(options: SvgOptions, modules: Int) -> SvgOptions {
   let SvgOptions(module_size, _, dark_color, light_color, background) = options
-  SvgOptions(module_size, modules, dark_color, light_color, background)
+  SvgOptions(
+    module_size,
+    non_negative_or(modules, default: 0),
+    dark_color,
+    light_color,
+    background,
+  )
 }
 
 /// Set the dark module colour.
@@ -154,5 +170,19 @@ fn dark_run_length(row: List(Bool), count: Int) -> Int {
   case row {
     [True, ..rest] -> dark_run_length(rest, count + 1)
     _ -> count
+  }
+}
+
+fn positive_or(value: Int, default default: Int) -> Int {
+  case value > 0 {
+    True -> value
+    False -> default
+  }
+}
+
+fn non_negative_or(value: Int, default default: Int) -> Int {
+  case value >= 0 {
+    True -> value
+    False -> default
   }
 }

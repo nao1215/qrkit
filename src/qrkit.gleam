@@ -31,9 +31,14 @@ pub type Symbol =
   types.Symbol
 
 /// Type alias for [`qrkit/error.EncodeError`](./qrkit/error.html#EncodeError).
-/// To pattern-match on `EmptyInput | InvalidVersion(..) | DataExceedsCapacity(..) | UnsupportedCharacter(..) | IncompatibleOptions(..)`, `import qrkit/error`.
+/// To pattern-match on `EmptyInput | InvalidVersion(..) | InvalidEciDesignator(..) | DataExceedsCapacity(..) | UnsupportedCharacter(..) | IncompatibleOptions(..)`, `import qrkit/error`.
 pub type EncodeError =
   error.EncodeError
+
+/// Type alias for [`qrkit/error.MatrixAccessError`](./qrkit/error.html#MatrixAccessError).
+/// To pattern-match on `ModuleOutOfBounds(..)`, `import qrkit/error`.
+pub type MatrixAccessError =
+  error.MatrixAccessError
 
 pub opaque type Builder {
   Builder(
@@ -79,8 +84,7 @@ pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
   Builder(data, ecc, min_version, eci, symbol, preference)
 }
 
-/// Set the minimum symbol version as a **strict floor**: the build will use
-/// exactly this version, not silently promote to a larger one.
+/// Pin the symbol version exactly.
 ///
 /// The value is interpreted relative to the active symbol family: Standard QR
 /// accepts 1..40, Micro QR accepts 1..4 (M1..M4), and rMQR accepts 1..32
@@ -88,15 +92,27 @@ pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
 ///
 /// If the payload, mode, or ECC level cannot be satisfied at the requested
 /// version, `build` returns `Error(DataExceedsCapacity)` or
-/// `Error(IncompatibleOptions)` instead of bumping to a larger version. When
-/// `with_min_version` is not called, the encoder selects the smallest version
-/// that fits the payload (the original "smallest fit" default).
-pub fn with_min_version(builder: Builder, min_version: Int) -> Builder {
+/// `Error(IncompatibleOptions)` instead of bumping to a larger version.
+/// When no exact version is configured, the encoder selects the smallest
+/// version that fits the payload.
+pub fn with_exact_version(builder: Builder, version: Int) -> Builder {
   let Builder(data, ecc, _, eci, symbol, preference) = builder
-  Builder(data, ecc, Some(min_version), eci, symbol, preference)
+  Builder(data, ecc, Some(version), eci, symbol, preference)
+}
+
+/// Compatibility alias for [`with_exact_version`](#with_exact_version).
+///
+/// Despite the historical name, this pins the symbol version exactly rather
+/// than setting a lower bound. New code should prefer `with_exact_version`.
+pub fn with_min_version(builder: Builder, min_version: Int) -> Builder {
+  with_exact_version(builder, min_version)
 }
 
 /// Add an optional ECI assignment designator before the data segments.
+///
+/// ECI is only supported for Standard QR. Valid designators are in the range
+/// 0..999999; invalid values surface as `Error(InvalidEciDesignator(..))`
+/// during `build`.
 pub fn with_eci(builder: Builder, designator: Int) -> Builder {
   let Builder(data, ecc, min_version, _, symbol, preference) = builder
   Builder(data, ecc, min_version, Some(designator), symbol, preference)
@@ -123,7 +139,7 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
   case data == "" {
     True -> Error(error.EmptyInput)
     False ->
-      case validate_min_version(min_version, symbol) {
+      case validate_builder_options(min_version, eci, symbol) {
         Error(error) -> Error(error)
         Ok(Nil) ->
           case symbol {
@@ -174,6 +190,17 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
   }
 }
 
+fn validate_builder_options(
+  min_version: Option(Int),
+  eci: Option(Int),
+  symbol: Symbol,
+) -> Result(Nil, EncodeError) {
+  case validate_min_version(min_version, symbol) {
+    Error(error) -> Error(error)
+    Ok(Nil) -> validate_eci(eci, symbol)
+  }
+}
+
 fn validate_min_version(
   min_version: Option(Int),
   symbol: Symbol,
@@ -191,6 +218,24 @@ fn validate_min_version(
         False -> Ok(Nil)
       }
     }
+  }
+}
+
+fn validate_eci(eci: Option(Int), symbol: Symbol) -> Result(Nil, EncodeError) {
+  case eci {
+    None -> Ok(Nil)
+    Some(designator) ->
+      case designator < 0 || designator > 999_999 {
+        True -> Error(error.InvalidEciDesignator(designator))
+        False ->
+          case symbol == types.Standard {
+            True -> Ok(Nil)
+            False ->
+              Error(error.IncompatibleOptions(
+                "ECI is only supported for Standard QR",
+              ))
+          }
+      }
   }
 }
 
@@ -294,14 +339,17 @@ pub fn mask(qr: QrCode) -> Int {
 }
 
 /// Return a single module from the symbol matrix.
-pub fn module_at(qr: QrCode, x: Int, y: Int) -> Bool {
+///
+/// Returns `Error(ModuleOutOfBounds(..))` when `x` or `y` fall outside the
+/// matrix dimensions.
+pub fn module_at(qr: QrCode, x: Int, y: Int) -> Result(Bool, MatrixAccessError) {
   case rows(qr) |> util.at(y) {
     Ok(row) ->
       case util.at(row, x) {
-        Ok(value) -> value
-        Error(_) -> False
+        Ok(value) -> Ok(value)
+        Error(_) -> Error(error.ModuleOutOfBounds(x, y, width(qr), height(qr)))
       }
-    Error(_) -> False
+    Error(_) -> Error(error.ModuleOutOfBounds(x, y, width(qr), height(qr)))
   }
 }
 
