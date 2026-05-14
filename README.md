@@ -7,14 +7,10 @@
 [![License](https://img.shields.io/github/license/nao1215/qrkit)](LICENSE)
 
 Pure-Gleam QR code generator for the Erlang and JavaScript targets.
-Covers Standard QR (versions 1–40, ECC L/M/Q/H), Micro QR (M1–M4),
-rMQR (ISO/IEC 23941, 32 sizes), and Structured Append. Ships with
-terminal, SVG, and PNG renderers and content helpers for URL, WiFi,
-vCard, email, SMS, phone, geo, and calendar payloads.
 
-The QR below points to the project's GitHub Sponsors page. Try
-scanning it with your phone — every example in this README was used
-to render it.
+Covers Standard QR (versions 1–40, ECC L/M/Q/H), Micro QR (M1–M4), rMQR (ISO/IEC 23941, 32 sizes), and Structured Append. Ships with terminal, SVG, and PNG renderers and content helpers for URL, WiFi, vCard, email, SMS, phone, geo, and calendar payloads.
+
+The QR below points to the project's GitHub Sponsors page. Try scanning it with your phone — every example in this README was used to render it.
 
 ![Sponsor nao1215](docs/images/sponsor-qr.png)
 
@@ -24,8 +20,7 @@ gleam add qrkit
 
 ## Hello, QR
 
-The shortest possible path: encode a string and print it to the
-terminal.
+The shortest possible path: encode a string and print it to the terminal.
 
 ```gleam
 import gleam/io
@@ -38,9 +33,7 @@ pub fn main() {
 }
 ```
 
-`qrkit.encode/1` picks the smallest version that fits and defaults to
-ECC level Medium. The returned `QrCode` is opaque — use the renderers
-in `qrkit/render/*` to turn it into pixels.
+`qrkit.encode/1` picks the smallest version that fits and defaults to ECC level Medium. The returned `QrCode` is opaque — use the renderers in `qrkit/render/*` to turn it into pixels.
 
 ## Builder for ECC, version, and ECI
 
@@ -59,9 +52,7 @@ pub fn high_density_qr() -> qrkit.QrCode {
 }
 ```
 
-`with_ecc` selects an error correction level, `with_min_version` raises
-the minimum version (handy when you want a fixed size), and `with_eci`
-prepends an Extended Channel Interpretation header (26 for UTF-8).
+`with_ecc` selects an error correction level, `with_min_version` raises the minimum version (handy when you want a fixed size), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8).
 
 ## Render as SVG for the browser
 
@@ -75,10 +66,7 @@ pub fn render_svg() -> String {
 }
 ```
 
-The returned string is a complete `<svg>` document. Drop it into any
-HTML template; in Lustre, pass it to an unsafe-HTML helper after
-sanitising for your environment. Customise the look with the SVG
-builder:
+The returned string is a complete `<svg>` document. Drop it into any HTML template; in Lustre, pass it to an unsafe-HTML helper after sanitising for your environment. Customise the look with the SVG builder:
 
 ```gleam
 import qrkit
@@ -110,8 +98,7 @@ pub fn render_png_bytes() -> BitArray {
 }
 ```
 
-`png.to_bit_array/3` returns raw PNG bytes. On the Erlang target a
-file IO library such as `simplifile` writes them to disk in one call:
+`png.to_bit_array/3` returns raw PNG bytes. On the Erlang target a file IO library such as `simplifile` writes them to disk in one call:
 
 ```gleam
 import qrkit
@@ -127,9 +114,7 @@ pub fn save_png() -> Result(Nil, simplifile.FileError) {
 
 ## ASCII for the terminal
 
-`ascii.to_string/1` uses `██` blocks with a 4-module quiet zone.
-`ascii.to_string_compact/1` halves the vertical size by using
-`▀`/`▄` half-blocks, and `ascii.with_inverse/1` swaps light and dark.
+`ascii.to_string/1` uses `██` blocks with a 4-module quiet zone. `ascii.to_string_compact/1` halves the vertical size by using `▀`/`▄` half-blocks, and `ascii.with_inverse/1` swaps light and dark.
 
 ```gleam
 import qrkit
@@ -161,8 +146,7 @@ pub fn wifi_qr_svg() -> String {
 }
 ```
 
-Phones recognise the `WIFI:` payload and offer a one-tap "join
-network" prompt.
+Phones recognise the `WIFI:` payload and offer a one-tap "join network" prompt.
 
 ## vCard, email, SMS, phone, geo
 
@@ -216,8 +200,7 @@ pub fn meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
 
 ## Inspect the matrix
 
-The `QrCode` type is opaque, but every useful field is accessible
-through a small inspector API.
+The `QrCode` type is opaque, but every useful field is accessible through a small inspector API.
 
 ```gleam
 import qrkit
@@ -238,15 +221,11 @@ pub fn ecc_letter_for_quartile() -> String {
 }
 ```
 
-`qrkit.rows/1` returns the matrix as `List(List(Bool))` for custom
-renderers.
+`qrkit.rows/1` returns the matrix as `List(List(Bool))` for custom renderers.
 
 ## Micro QR
 
-Micro QR squeezes a small payload into 11×11 — 17×17 modules. M1
-takes Numeric only; M2 adds Alphanumeric; M3 and M4 take all four
-modes. ECC level constraints follow ISO/IEC 18004 Annex K (M1 has
-error detection only, M4 supports up to Quartile).
+Micro QR squeezes a small payload into 11×11 — 17×17 modules. M1 takes Numeric only; M2 adds Alphanumeric; M3 and M4 take all four modes. ECC level constraints follow ISO/IEC 18004 Annex K (M1 has error detection only, M4 supports up to Quartile).
 
 ```gleam
 import qrkit
@@ -267,9 +246,7 @@ pub fn business_card_qr() -> String {
 
 ## rMQR (rectangular Micro QR)
 
-ISO/IEC 23941 defines 32 rectangular sizes from 7×43 to 17×139, with
-only Medium and High error correction levels. Useful for narrow
-labels and packaging.
+ISO/IEC 23941 defines 32 rectangular sizes from 7×43 to 17×139, with only Medium and High error correction levels. Useful for narrow labels and packaging.
 
 ```gleam
 import qrkit
@@ -289,11 +266,7 @@ pub fn label_qr() -> String {
 
 ## Structured Append
 
-`qrkit.encode_split(data, max_version)` chains up to 16 symbols so a
-single payload can be carried across multiple printed QR codes. Each
-returned symbol carries the ISO/IEC 18004 §8.2 header (mode
-indicator + symbol position + total − 1 + parity byte) so a
-compliant reader can stitch them back together.
+`qrkit.encode_split(data, max_version)` chains up to 16 symbols so a single payload can be carried across multiple printed QR codes. Each returned symbol carries the ISO/IEC 18004 §8.2 header (mode indicator + symbol position + total − 1 + parity byte) so a compliant reader can stitch them back together.
 
 ```gleam
 import gleam/list
@@ -308,15 +281,11 @@ pub fn split_long_message() -> List(String) {
 }
 ```
 
-When the payload already fits in one symbol at `max_version`, the
-returned list contains a single QR without the Structured Append
-header.
+When the payload already fits in one symbol at `max_version`, the returned list contains a single QR without the Structured Append header.
 
 ## Force a single encoding mode
 
-`with_mode_preference(qrkit.ForceByte)` skips the segmenting
-optimiser and encodes the whole string as raw bytes — useful when you
-need a deterministic mode regardless of the input.
+`with_mode_preference(qrkit.ForceByte)` skips the segmenting optimiser and encodes the whole string as raw bytes — useful when you need a deterministic mode regardless of the input.
 
 ```gleam
 import qrkit
@@ -331,8 +300,7 @@ pub fn raw_byte_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
 
 ## Errors
 
-Every public entry point returns `Result(_, qrkit.EncodeError)`. The
-variants are:
+Every public entry point returns `Result(_, qrkit.EncodeError)`. The variants are:
 
 - `EmptyInput` — empty `data`.
 - `InvalidVersion(requested)` — version outside the symbol family.
@@ -354,9 +322,7 @@ pub fn rejected() -> Bool {
 
 ## Targets
 
-Both the Erlang and JavaScript targets are exercised in CI on every
-push. Pure-Gleam internals mean no NIF / native binary is needed for
-PNG rendering or Reed-Solomon — `qrkit` runs anywhere Gleam runs.
+Both the Erlang and JavaScript targets are exercised in CI on every push. Pure-Gleam internals mean no NIF / native binary is needed for PNG rendering or Reed-Solomon — `qrkit` runs anywhere Gleam runs.
 
 Full API reference: <https://hexdocs.pm/qrkit/>.
 
