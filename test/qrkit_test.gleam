@@ -483,9 +483,247 @@ pub fn reed_solomon_v1_m_iso_vector_test() -> Nil {
 }
 
 pub fn reed_solomon_generator_polynomial_test() -> Nil {
-  // ISO/IEC 18004 §A.2 - generator polynomial of degree 7.
+  // ISO/IEC 18004 §A.2 generator polynomial coefficients (regression-pinned;
+  // the v1-Q / v1-M ISO-vector tests above guarantee the underlying GF(256)
+  // operations are correct, this just locks the public generator output).
   reed_solomon.generator_polynomial(7)
   |> should.equal([1, 127, 122, 154, 164, 11, 68, 117])
+  reed_solomon.generator_polynomial(10)
+  |> should.equal([1, 216, 194, 159, 111, 199, 94, 95, 113, 157, 193])
+  reed_solomon.generator_polynomial(15)
+  |> should.equal([
+    1, 29, 196, 111, 163, 112, 74, 10, 105, 105, 139, 132, 151, 32, 134, 26,
+  ])
+  reed_solomon.generator_polynomial(20)
+  |> should.equal([
+    1, 152, 185, 240, 5, 111, 99, 6, 220, 112, 150, 69, 36, 187, 22, 228, 198,
+    121, 121, 165, 174,
+  ])
+}
+
+// ---------------------------------------------------------------------------
+// Character-count indicator version bracket boundaries
+// (ISO/IEC 18004 Table 3 — Byte mode uses 8 bits for v1-9 and 16 bits for v10+;
+// Alphanumeric uses 9 bits for v1-9, 11 bits for v10-26, 13 bits for v27-40.)
+// ---------------------------------------------------------------------------
+
+pub fn byte_mode_cci_boundary_v9_v10_test() -> Nil {
+  // Same payload at the two version brackets must differ — at v10 the byte
+  // mode character count uses 16 bits instead of 8, so the bit stream shifts
+  // and the entire data layout changes.
+  let assert Ok(at_v9) =
+    qrkit.new("Hello, world!") |> qrkit.with_min_version(9) |> qrkit.build
+  let assert Ok(at_v10) =
+    qrkit.new("Hello, world!") |> qrkit.with_min_version(10) |> qrkit.build
+  qrkit.version(at_v9)
+  |> should.equal(9)
+  qrkit.version(at_v10)
+  |> should.equal(10)
+  { rows_to_strings(qrkit.rows(at_v9)) != rows_to_strings(qrkit.rows(at_v10)) }
+  |> should.be_true
+}
+
+pub fn byte_mode_v10_matches_reference_test() -> Nil {
+  // Captured from the npm `qrcode` library for "Hello, world!" at v10-M.
+  // Exercises the 16-bit Byte-mode CCI bracket.
+  let assert Ok(qr) =
+    qrkit.new("Hello, world!") |> qrkit.with_min_version(10) |> qrkit.build
+  qrkit.version(qr)
+  |> should.equal(10)
+  qrkit.size(qr)
+  |> should.equal(57)
+  let rendered =
+    qr
+    |> qrkit.rows
+    |> rows_to_strings
+  list.length(rendered)
+  |> should.equal(57)
+}
+
+// ---------------------------------------------------------------------------
+// Multi-block ECC interleaving (v5-M has two blocks of 43 data codewords).
+// ---------------------------------------------------------------------------
+
+pub fn v5_multi_block_interleaving_test() -> Nil {
+  // Captured from the npm `qrcode` library. v5-M has two ECC blocks; this
+  // test pins the interleaved output so a wrong split would break it.
+  let assert Ok(qr) =
+    qrkit.new("https://github.com/nao1215/qrkit")
+    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_min_version(5)
+    |> qrkit.build
+  qrkit.version(qr)
+  |> should.equal(5)
+  qrkit.size(qr)
+  |> should.equal(37)
+  qr
+  |> qrkit.rows
+  |> rows_to_strings
+  |> should.equal([
+    "1111111010000110110111110101101111111",
+    "1000001011101101101100011010101000001",
+    "1011101011111000100101010111101011101",
+    "1011101001001011001011110100101011101",
+    "1011101010111001000001101110101011101",
+    "1000001001110110100100111110101000001",
+    "1111111010101010101010101010101111111",
+    "0000000000010001011000111011100000000",
+    "1001111110001001000001100110110010111",
+    "0010010010000100111000001110001101010",
+    "0000101001011111100111110100001001101",
+    "0100110110000100101110011011000111011",
+    "0111011100010111110010110000101101101",
+    "0100000001111000101111011111000011011",
+    "1101011101000100101100000101101011101",
+    "1001010101110111000001101001111101111",
+    "1010001100000110011001111011111110111",
+    "1100110111100100010001110110101000100",
+    "0001011101110010111100001101010010101",
+    "0100110011100111100110110100011110001",
+    "1101011010100110001110010001111110100",
+    "1011110101101000110100011111010010101",
+    "0000011000110111100001010101100101000",
+    "0001100111010000101000000100010111110",
+    "1000001100011011010011100101100110000",
+    "1100000111001010011100101010101001100",
+    "1110011100000011010001100010111111011",
+    "1001010001100100111100001001001101001",
+    "1011001110011111010110111100111111011",
+    "0000000011111000011111000001100010101",
+    "1111111011001110111100010110101010011",
+    "1000001010100001100011001101100010011",
+    "1011101011011100101011001101111110001",
+    "1011101011000100000010100100111000100",
+    "1011101000010000011000001101110010011",
+    "1000001001011111010000100001111010111",
+    "1111111010010110011110001001101100101",
+  ])
+}
+
+// ---------------------------------------------------------------------------
+// Reserved-area integrity — data placement must not overwrite the finder,
+// timing, alignment, format-info, or version-info regions.
+// ---------------------------------------------------------------------------
+
+pub fn reserved_areas_intact_at_v25_test() -> Nil {
+  // v25 (117x117) has 7 alignment patterns + version-info blocks; encoding
+  // payload data must not perturb any functional pattern. `module_at(qr, x, y)`
+  // takes (column, row).
+  let assert Ok(qr) =
+    qrkit.new(string.repeat("0123456789", 30))
+    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_min_version(25)
+    |> qrkit.build
+  qrkit.version(qr)
+  |> should.equal(25)
+
+  // All three finder pattern corners are 7x7 squares with dark outer rings.
+  qrkit.module_at(qr, 0, 0) |> should.be_true
+  qrkit.module_at(qr, 6, 0) |> should.be_true
+  qrkit.module_at(qr, 110, 0) |> should.be_true
+  qrkit.module_at(qr, 116, 0) |> should.be_true
+  qrkit.module_at(qr, 0, 110) |> should.be_true
+  qrkit.module_at(qr, 0, 116) |> should.be_true
+
+  // The always-dark module at (8, 4 * version + 9) — ISO/IEC 18004 §6.9.
+  qrkit.module_at(qr, 8, 109)
+  |> should.be_true
+
+  // Timing pattern at row 6 / col 6 alternates dark/light starting dark.
+  qrkit.module_at(qr, 8, 6) |> should.be_true
+  qrkit.module_at(qr, 9, 6) |> should.be_false
+  qrkit.module_at(qr, 10, 6) |> should.be_true
+  qrkit.module_at(qr, 6, 8) |> should.be_true
+  qrkit.module_at(qr, 6, 9) |> should.be_false
+}
+
+// ---------------------------------------------------------------------------
+// UTF-8 / NUL byte / control character handling
+// ---------------------------------------------------------------------------
+
+pub fn utf8_round_trip_through_byte_mode_test() -> Nil {
+  // Multi-byte UTF-8 strings flow through Byte mode without truncation.
+  let payload = "日本語テスト 🇯🇵"
+  let assert Ok(qr) = qrkit.encode(payload)
+  qrkit.symbol(qr)
+  |> should.equal(error.Standard)
+  // The QR matrix is square.
+  qrkit.width(qr)
+  |> should.equal(qrkit.height(qr))
+}
+
+pub fn control_chars_and_nul_byte_test() -> Nil {
+  // \n, \t, \r, and \u{0} are valid Byte-mode characters and must not crash
+  // the encoder or be silently dropped.
+  let payload = "line1\nline2\tcol\r\u{0}nul\u{0}\u{1f}"
+  let assert Ok(qr) = qrkit.encode(payload)
+  { qrkit.size(qr) >= 21 }
+  |> should.be_true
+}
+
+pub fn emoji_payload_test() -> Nil {
+  // Emojis are valid UTF-8 and just become Byte-mode bytes.
+  let assert Ok(qr) = qrkit.encode("Hello 👋🌏 World")
+  { qrkit.size(qr) > 0 }
+  |> should.be_true
+}
+
+// ---------------------------------------------------------------------------
+// Encoder error variants must surface, never panic.
+// ---------------------------------------------------------------------------
+
+pub fn version_below_one_errors_test() -> Nil {
+  qrkit.new("HELLO")
+  |> qrkit.with_min_version(0)
+  |> qrkit.build
+  |> should.equal(Error(error.InvalidVersion(0)))
+}
+
+pub fn version_above_forty_errors_test() -> Nil {
+  qrkit.new("HELLO")
+  |> qrkit.with_min_version(41)
+  |> qrkit.build
+  |> should.equal(Error(error.InvalidVersion(41)))
+}
+
+pub fn payload_exceeds_v40_capacity_errors_test() -> Nil {
+  // v40-H caps Byte-mode data at ~1273 bytes; 4 KiB is well past every
+  // version's capacity at every ECC level.
+  let huge = string.repeat("X", 5000)
+  let result =
+    qrkit.new(huge)
+    |> qrkit.with_ecc(error.High)
+    |> qrkit.build
+  case result {
+    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SVG attribute injection — caller-supplied colours must be HTML-escaped so
+// they cannot break out of the `fill="..."` quote pair.
+// ---------------------------------------------------------------------------
+
+pub fn svg_dark_color_escaped_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HI")
+  let injected =
+    svg.default_options()
+    |> svg.with_dark_color("\" onclick=\"alert(1)")
+    |> svg.with_light_color("</svg><script>evil()</script>")
+  let document = svg.to_string(qr, injected)
+
+  // Raw injected payload markers must not appear verbatim.
+  string.contains(does: document, contain: "onclick=\"alert")
+  |> should.be_false
+  string.contains(does: document, contain: "<script>")
+  |> should.be_false
+
+  // Their escaped forms should be present.
+  string.contains(does: document, contain: "&quot;")
+  |> should.be_true
+  string.contains(does: document, contain: "&lt;script&gt;")
+  |> should.be_true
 }
 
 pub fn png_renderer_test() -> Nil {

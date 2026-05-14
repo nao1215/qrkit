@@ -63,7 +63,7 @@ pub fn to_string(qr: qrkit.QrCode, options: SvgOptions) -> String {
       <> "\" height=\""
       <> int.to_string(total_height)
       <> "\" fill=\""
-      <> light_color
+      <> escape_attribute(light_color)
       <> "\"/>"
     False -> ""
   }
@@ -75,10 +75,21 @@ pub fn to_string(qr: qrkit.QrCode, options: SvgOptions) -> String {
   <> "\" shape-rendering=\"crispEdges\">"
   <> background_tag
   <> "<path fill=\""
-  <> dark_color
+  <> escape_attribute(dark_color)
   <> "\" d=\""
   <> path_data
   <> "\"/></svg>"
+}
+
+/// Escape an attribute value to prevent breaking out of the surrounding
+/// `"..."` quote pair when callers pass user-controlled CSS strings.
+fn escape_attribute(value: String) -> String {
+  value
+  |> string.replace(each: "&", with: "&amp;")
+  |> string.replace(each: "<", with: "&lt;")
+  |> string.replace(each: ">", with: "&gt;")
+  |> string.replace(each: "\"", with: "&quot;")
+  |> string.replace(each: "'", with: "&#39;")
 }
 
 fn path_data(

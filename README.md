@@ -353,6 +353,20 @@ Both the Erlang and JavaScript targets are exercised in CI on every push. Pure-G
 
 Full API reference: <https://hexdocs.pm/qrkit/>.
 
+## Scope and non-goals
+
+- qrkit is an **encoder only**. There is no QR decoder in the library, so things like image input, finder-pattern detection, perspective correction, RS error correction, and decoder-side fuzzing are out of scope.
+- Kanji segmentation uses a focused Shift-JIS subset (hiragana, katakana, full-width ASCII, basic punctuation). Codepoints outside that subset fall back to Byte mode, which is still spec-valid but slightly larger.
+- Model 1 QR (the pre-1997 specification) is not implemented; only Model 2 (ISO/IEC 18004:2015), Micro QR, and rMQR.
+- The encoder does not normalise input (no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL-truncation). Whatever string you pass is the exact byte sequence that lands in the symbol's Byte segment.
+
+## Safety notes
+
+- `qrkit` does not sanity-check the payload — if you stuff `javascript:` URIs, otpauth secrets, or attacker-controlled text into a QR, the receiving app will get exactly that. Validate before encoding.
+- The SVG renderer HTML-escapes caller-supplied `dark_color` / `light_color` strings so a hostile colour cannot break out of the `fill="..."` attribute. Inline the returned `<svg>` only into trusted contexts; for general HTML pages, prefer a sanitiser like DOMPurify on the embed.
+- The library writes payload data into the matrix as-is. `EncodeError` variants never contain the input payload except for `UnsupportedCharacter`, which reports the single offending character; if that is a privacy concern (e.g., the QR carried a TOTP secret) handle the error before logging.
+- All public entry points return `Result` — no `panic`, no `let assert` in `src/`. Pathological inputs surface as `DataExceedsCapacity` or `InvalidVersion`, not as runtime crashes.
+
 ## License
 
 [MIT](LICENSE)
