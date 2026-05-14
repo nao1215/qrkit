@@ -96,7 +96,11 @@ Steps for a new release `vX.Y.Z`:
 1. Confirm `main` is green on CI and the working tree is clean.
 2. Promote any items under `## Unreleased` in `CHANGELOG.md` into a
    new `## [X.Y.Z] - YYYY-MM-DD` section directly below `## Unreleased`.
-3. Bump `version = "X.Y.Z"` in `gleam.toml`.
+3. Bump `version = "X.Y.Z"` in `gleam.toml`. The
+   `qrkit.package_version` constant in `src/qrkit.gleam` is
+   cross-checked against this value by `package_version_test` in the
+   test suite, so if you also bump the constant by hand the two stay
+   in lockstep; if you forget, CI fails before publish (#2).
 4. Open a PR with the changelog and version bump, get it green and
    merged.
 5. After merge, fast-forward `main` and tag the merge commit:

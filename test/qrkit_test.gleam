@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/list
+import gleam/result
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -11,14 +12,40 @@ import qrkit/render/ascii
 import qrkit/render/png
 import qrkit/render/svg
 import qrkit/types
+import simplifile
 
 pub fn main() -> Nil {
   gleeunit.main()
 }
 
 pub fn package_version_test() -> Nil {
+  // Cross-check the runtime-visible version against the single source
+  // of truth (`gleam.toml`). When a release bumps `gleam.toml` but
+  // forgets to bump `qrkit.package_version`, this test fails CI
+  // immediately rather than letting drift ship to Hex. See #2.
+  let assert Ok(toml) = simplifile.read("gleam.toml")
+  let assert Ok(version_in_toml) = extract_toml_version(toml)
   qrkit.package_version()
-  |> should.equal("0.1.0")
+  |> should.equal(version_in_toml)
+}
+
+fn extract_toml_version(toml: String) -> Result(String, Nil) {
+  // `gleam.toml` always pins the package version with a line of the
+  // form `version = "X.Y.Z"`. Grab the first such line and pull out
+  // the quoted value.
+  toml
+  |> string.split("\n")
+  |> list.find(fn(line) { string.starts_with(string.trim(line), "version = ") })
+  |> result.try(fn(line) {
+    case string.split_once(line, "\"") {
+      Ok(#(_, after_open)) ->
+        case string.split_once(after_open, "\"") {
+          Ok(#(value, _)) -> Ok(value)
+          Error(_) -> Error(Nil)
+        }
+      Error(_) -> Error(Nil)
+    }
+  })
 }
 
 pub fn encode_returns_square_symbol_test() -> Nil {

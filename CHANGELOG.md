@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `package_version_test` now reads `gleam.toml` at test time and asserts
+  that `qrkit.package_version` returns the version pinned there. Releases
+  that bump only `gleam.toml` without `src/qrkit.gleam`'s constant
+  (or vice versa) now fail CI instead of shipping a runtime-visible
+  version that disagrees with Hex metadata. `CONTRIBUTING.md`'s release
+  checklist was updated to call this out. (#2)
+
 - **Breaking**: `qrkit.with_min_version(N)` is now a strict floor. If the
   payload, the chosen mode, or the chosen ECC level cannot be encoded at
   version N, `qrkit.build` returns `Error(DataExceedsCapacity)` or
