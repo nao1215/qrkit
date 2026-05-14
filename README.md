@@ -39,12 +39,12 @@ pub fn main() {
 
 ```gleam
 import qrkit
-import qrkit/error
+import qrkit/types
 
 pub fn high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_ecc(error.Quartile)
+    |> qrkit.with_ecc(types.Quartile)
     |> qrkit.with_min_version(3)
     |> qrkit.with_eci(26)
     |> qrkit.build()
@@ -217,7 +217,7 @@ import qrkit/content
 
 pub fn meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
   // 2026-05-14 10:00 UTC, ends 11:00 UTC.
-  content.event("Sync", 1_778_745_600, 1_778_749_200)
+  content.event(title: "Sync", start_unix: 1_778_745_600, end_unix: 1_778_749_200)
   |> content.with_location("Online")
   |> content.with_description("Project sync meeting")
   |> content.event_to_string
@@ -231,7 +231,7 @@ The `QrCode` type is opaque, but every useful field is accessible through a smal
 
 ```gleam
 import qrkit
-import qrkit/error
+import qrkit/types
 
 pub fn describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
   #(
@@ -243,7 +243,7 @@ pub fn describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
 }
 
 pub fn ecc_letter_for_quartile() -> String {
-  qrkit.error_correction_designator(error.Quartile)
+  qrkit.error_correction_designator(types.Quartile)
   // -> "Q"
 }
 ```
@@ -256,15 +256,15 @@ Micro QR squeezes a small payload into 11×11 — 17×17 modules. M1 takes Numer
 
 ```gleam
 import qrkit
-import qrkit/error
+import qrkit/types
 import qrkit/render/svg
 
 pub fn business_card_qr() -> String {
   let assert Ok(qr) =
     qrkit.new("01234567")
-    |> qrkit.with_symbol(error.Micro)
+    |> qrkit.with_symbol(types.Micro)
     |> qrkit.with_min_version(2)
-    |> qrkit.with_ecc(error.Low)
+    |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
   svg.to_string(qr, svg.default_options())
@@ -277,14 +277,14 @@ ISO/IEC 23941 defines 32 rectangular sizes from 7×43 to 17×139, with only Medi
 
 ```gleam
 import qrkit
-import qrkit/error
+import qrkit/types
 import qrkit/render/svg
 
 pub fn label_qr() -> String {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_symbol(error.Rectangular)
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
   svg.to_string(qr, svg.default_options())
@@ -316,11 +316,11 @@ When the payload already fits in one symbol at `max_version`, the returned list 
 
 ```gleam
 import qrkit
-import qrkit/error
+import qrkit/types
 
 pub fn raw_byte_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
   qrkit.new("123-ABC")
-  |> qrkit.with_mode_preference(error.ForceByte)
+  |> qrkit.with_mode_preference(types.ForceByte)
   |> qrkit.build()
 }
 ```
@@ -337,7 +337,7 @@ Every public entry point returns `Result(_, qrkit.EncodeError)`. The variants ar
 
 ```gleam
 import qrkit
-import qrkit/error
+import qrkit/types
 
 pub fn rejected() -> Bool {
   case qrkit.encode("") {

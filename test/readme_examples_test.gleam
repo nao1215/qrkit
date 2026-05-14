@@ -12,6 +12,7 @@ import qrkit/error
 import qrkit/render/ascii
 import qrkit/render/png
 import qrkit/render/svg
+import qrkit/types
 
 // ---------------------------------------------------------------------------
 // README: Hello, QR
@@ -36,7 +37,7 @@ pub fn readme_hello_qr_test() -> Nil {
 fn readme_high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_ecc(error.Quartile)
+    |> qrkit.with_ecc(types.Quartile)
     |> qrkit.with_min_version(3)
     |> qrkit.with_eci(26)
     |> qrkit.build()
@@ -46,7 +47,7 @@ fn readme_high_density_qr() -> qrkit.QrCode {
 pub fn readme_high_density_qr_test() -> Nil {
   let qr = readme_high_density_qr()
   qrkit.error_correction(qr)
-  |> should.equal(error.Quartile)
+  |> should.equal(types.Quartile)
   { qrkit.version(qr) >= 3 }
   |> should.be_true
 }
@@ -210,7 +211,11 @@ pub fn readme_content_helpers_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 fn readme_meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  content.event("Sync", 1_778_745_600, 1_778_749_200)
+  content.event(
+    title: "Sync",
+    start_unix: 1_778_745_600,
+    end_unix: 1_778_749_200,
+  )
   |> content.with_location("Online")
   |> content.with_description("Project sync meeting")
   |> content.event_to_string
@@ -236,7 +241,7 @@ fn readme_describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
 }
 
 fn readme_ecc_letter_for_quartile() -> String {
-  qrkit.error_correction_designator(error.Quartile)
+  qrkit.error_correction_designator(types.Quartile)
 }
 
 pub fn readme_inspect_matrix_test() -> Nil {
@@ -258,9 +263,9 @@ pub fn readme_inspect_matrix_test() -> Nil {
 fn readme_business_card_qr() -> String {
   let assert Ok(qr) =
     qrkit.new("01234567")
-    |> qrkit.with_symbol(error.Micro)
+    |> qrkit.with_symbol(types.Micro)
     |> qrkit.with_min_version(2)
-    |> qrkit.with_ecc(error.Low)
+    |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
   svg.to_string(qr, svg.default_options())
@@ -278,8 +283,8 @@ pub fn readme_business_card_qr_test() -> Nil {
 fn readme_label_qr() -> String {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_symbol(error.Rectangular)
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
   svg.to_string(qr, svg.default_options())
@@ -313,7 +318,7 @@ pub fn readme_split_long_message_test() -> Nil {
 
 fn readme_raw_byte_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
   qrkit.new("123-ABC")
-  |> qrkit.with_mode_preference(error.ForceByte)
+  |> qrkit.with_mode_preference(types.ForceByte)
   |> qrkit.build()
 }
 

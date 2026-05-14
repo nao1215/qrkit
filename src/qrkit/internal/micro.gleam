@@ -6,15 +6,17 @@
 
 import gleam/list
 import qrkit/error.{
-  type EncodeError, type ErrorCorrection, type Mode, type ModePreference,
-  Alphanumeric, Byte, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
-  Kanji, Low, Medium, Numeric, Quartile,
+  type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
 import qrkit/internal/bitstream
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
 import qrkit/internal/util
+import qrkit/types.{
+  type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte,
+  Kanji, Low, Medium, Numeric, Quartile,
+}
 
 pub opaque type Encoded {
   Encoded(
@@ -44,6 +46,11 @@ pub fn height(encoded: Encoded) -> Int {
 pub fn rows(encoded: Encoded) -> List(List(Bool)) {
   let Encoded(_, _, _, _, rows) = encoded
   rows
+}
+
+pub fn mask(encoded: Encoded) -> Int {
+  let Encoded(_, _, _, mask, _) = encoded
+  mask
 }
 
 const finder_size: Int = 7
@@ -172,8 +179,8 @@ fn select_mode(
   preference: ModePreference,
 ) -> Result(Mode, EncodeError) {
   case preference {
-    error.ForceByte -> Ok(Byte)
-    error.Auto -> Ok(detect_uniform_mode(util.characters(text), Numeric))
+    types.ForceByte -> Ok(Byte)
+    types.Auto -> Ok(detect_uniform_mode(util.characters(text), Numeric))
   }
 }
 

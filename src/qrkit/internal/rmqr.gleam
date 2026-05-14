@@ -6,15 +6,17 @@
 
 import gleam/list
 import qrkit/error.{
-  type EncodeError, type ErrorCorrection, type Mode, type ModePreference,
-  Alphanumeric, Byte, DataExceedsCapacity, High, IncompatibleOptions,
-  InvalidVersion, Kanji, Medium, Numeric,
+  type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
 import qrkit/internal/bitstream
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
 import qrkit/internal/util
+import qrkit/types.{
+  type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte, High,
+  Kanji, Medium, Numeric,
+}
 
 pub opaque type Encoded {
   Encoded(version: Int, width: Int, height: Int, rows: List(List(Bool)))
@@ -38,6 +40,13 @@ pub fn height(encoded: Encoded) -> Int {
 pub fn rows(encoded: Encoded) -> List(List(Bool)) {
   let Encoded(_, _, _, rows) = encoded
   rows
+}
+
+/// The mask number associated with the rMQR's fixed bitmask. rMQR has no
+/// per-symbol mask selection, so this is always `4` — the index that the
+/// `((row / 2 + col / 3)) % 2 == 0` pattern shares with Standard QR mask 4.
+pub fn mask(_encoded: Encoded) -> Int {
+  4
 }
 
 const total_versions: Int = 32
@@ -158,8 +167,8 @@ fn select_mode(
   preference: ModePreference,
 ) -> Result(Mode, EncodeError) {
   case preference {
-    error.ForceByte -> Ok(Byte)
-    error.Auto -> Ok(uniform_mode(util.characters(text), Numeric))
+    types.ForceByte -> Ok(Byte)
+    types.Auto -> Ok(uniform_mode(util.characters(text), Numeric))
   }
 }
 

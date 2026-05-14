@@ -1,7 +1,7 @@
 //// BCH encoding for standard QR format and version information.
 
 import gleam/int
-import qrkit/error.{type ErrorCorrection, High, Low, Medium, Quartile}
+import qrkit/types.{type ErrorCorrection, High, Low, Medium, Quartile}
 
 const g15 = 0b10100110111
 

@@ -4,10 +4,7 @@ import gleam/bit_array
 import gleam/bool
 import gleam/list
 import gleam/option.{type Option}
-import qrkit/error.{
-  type EncodeError, type ErrorCorrection, type ModePreference,
-  DataExceedsCapacity,
-}
+import qrkit/error.{type EncodeError, DataExceedsCapacity}
 import qrkit/internal/bitstream
 import qrkit/internal/format_info
 import qrkit/internal/mask
@@ -16,6 +13,7 @@ import qrkit/internal/reed_solomon
 import qrkit/internal/segment
 import qrkit/internal/util
 import qrkit/internal/version
+import qrkit/types.{type ErrorCorrection, type ModePreference}
 
 pub opaque type Encoded {
   Encoded(
@@ -128,6 +126,11 @@ pub fn height(encoded: Encoded) -> Int {
 pub fn rows(encoded: Encoded) -> List(List(Bool)) {
   let Encoded(_, _, _, _, rows) = encoded
   rows
+}
+
+pub fn mask(encoded: Encoded) -> Int {
+  let Encoded(_, _, _, mask, _) = encoded
+  mask
 }
 
 fn create_codewords_prefixed(

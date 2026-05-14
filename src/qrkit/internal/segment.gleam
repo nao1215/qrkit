@@ -2,13 +2,14 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import qrkit/error.{
-  type EncodeError, type Mode, type ModePreference, Alphanumeric, Auto, Byte,
-  ForceByte, Kanji, Numeric,
-}
+import qrkit/error.{type EncodeError}
 import qrkit/internal/bitstream
 import qrkit/internal/mode
 import qrkit/internal/util
+import qrkit/types.{
+  type Mode, type ModePreference, Alphanumeric, Auto, Byte, ForceByte, Kanji,
+  Numeric,
+}
 
 pub opaque type Segment {
   Segment(mode: Mode, data: String, count: Int, bits: Int, index: Int)

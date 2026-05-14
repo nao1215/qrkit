@@ -10,6 +10,7 @@ import qrkit/internal/reed_solomon
 import qrkit/render/ascii
 import qrkit/render/png
 import qrkit/render/svg
+import qrkit/types
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -29,11 +30,11 @@ pub fn encode_returns_square_symbol_test() -> Nil {
 pub fn builder_accepts_explicit_ecc_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_ecc(error.Quartile)
+    |> qrkit.with_ecc(types.Quartile)
     |> qrkit.build()
 
   qrkit.error_correction(qr)
-  |> should.equal(error.Quartile)
+  |> should.equal(types.Quartile)
 }
 
 pub fn empty_input_is_rejected_test() -> Nil {
@@ -80,9 +81,9 @@ pub fn mixed_content_falls_back_to_byte_mode_test() -> Nil {
     |> content.with_address("Tokyo, Japan")
     |> content.vcard_to_string
   let assert Ok(qr) =
-    qrkit.new(payload) |> qrkit.with_ecc(error.Quartile) |> qrkit.build
+    qrkit.new(payload) |> qrkit.with_ecc(types.Quartile) |> qrkit.build
   qrkit.symbol(qr)
-  |> should.equal(error.Standard)
+  |> should.equal(types.Standard)
   { qrkit.version(qr) <= 40 }
   |> should.be_true
 }
@@ -158,7 +159,7 @@ pub fn hello_world_matches_reference_matrix_test() -> Nil {
 pub fn numeric_reference_matrix_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("01234567")
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
   qr
@@ -226,7 +227,7 @@ pub fn v2_alignment_matches_reference_test() -> Nil {
   // finder patterns.
   let assert Ok(qr) =
     qrkit.new("HELLO WORLD")
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.with_min_version(2)
     |> qrkit.build
 
@@ -296,8 +297,8 @@ pub fn v7_decodes_to_input_text_test() -> Nil {
 pub fn micro_qr_m2_produces_13x13_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("01234567")
-    |> qrkit.with_symbol(error.Micro)
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
   qrkit.width(qr)
@@ -305,15 +306,15 @@ pub fn micro_qr_m2_produces_13x13_test() -> Nil {
   qrkit.height(qr)
   |> should.equal(13)
   qrkit.symbol(qr)
-  |> should.equal(error.Micro)
+  |> should.equal(types.Micro)
 }
 
 pub fn micro_qr_m1_half_codeword_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("01234")
-    |> qrkit.with_symbol(error.Micro)
+    |> qrkit.with_symbol(types.Micro)
     |> qrkit.with_min_version(1)
-    |> qrkit.with_ecc(error.Low)
+    |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
   qrkit.width(qr)
@@ -327,8 +328,8 @@ pub fn micro_qr_m1_half_codeword_test() -> Nil {
 pub fn micro_qr_m2_low_matches_iso_annex_i_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("01234567")
-    |> qrkit.with_symbol(error.Micro)
-    |> qrkit.with_ecc(error.Low)
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
   qr
@@ -382,8 +383,8 @@ fn result_is_data_too_long(result: Result(a, error.EncodeError)) -> Bool {
 pub fn rmqr_r7x43_default_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("01234567")
-    |> qrkit.with_symbol(error.Rectangular)
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
   qrkit.width(qr)
@@ -391,15 +392,15 @@ pub fn rmqr_r7x43_default_test() -> Nil {
   qrkit.height(qr)
   |> should.equal(7)
   qrkit.symbol(qr)
-  |> should.equal(error.Rectangular)
+  |> should.equal(types.Rectangular)
   qrkit.module_at(qr, 0, 0)
   |> should.equal(True)
 }
 
 pub fn rmqr_rejects_low_ecc_test() -> Nil {
   qrkit.new("HELLO")
-  |> qrkit.with_symbol(error.Rectangular)
-  |> qrkit.with_ecc(error.Low)
+  |> qrkit.with_symbol(types.Rectangular)
+  |> qrkit.with_ecc(types.Low)
   |> qrkit.build()
   |> result_is_incompatible
   |> should.be_true
@@ -407,8 +408,8 @@ pub fn rmqr_rejects_low_ecc_test() -> Nil {
 
 pub fn rmqr_rejects_quartile_ecc_test() -> Nil {
   qrkit.new("HELLO")
-  |> qrkit.with_symbol(error.Rectangular)
-  |> qrkit.with_ecc(error.Quartile)
+  |> qrkit.with_symbol(types.Rectangular)
+  |> qrkit.with_ecc(types.Quartile)
   |> qrkit.build()
   |> result_is_incompatible
   |> should.be_true
@@ -417,8 +418,8 @@ pub fn rmqr_rejects_quartile_ecc_test() -> Nil {
 pub fn rmqr_large_size_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new(string.repeat("0123456789", 6))
-    |> qrkit.with_symbol(error.Rectangular)
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
   { qrkit.width(qr) > 27 }
@@ -429,8 +430,8 @@ pub fn rmqr_large_size_test() -> Nil {
 
 pub fn micro_qr_m1_rejects_high_ecc_test() -> Nil {
   qrkit.new("12345")
-  |> qrkit.with_symbol(error.Micro)
-  |> qrkit.with_ecc(error.High)
+  |> qrkit.with_symbol(types.Micro)
+  |> qrkit.with_ecc(types.High)
   |> qrkit.build()
   |> result_is_incompatible
   |> should.be_true
@@ -549,7 +550,7 @@ pub fn v5_multi_block_interleaving_test() -> Nil {
   // test pins the interleaved output so a wrong split would break it.
   let assert Ok(qr) =
     qrkit.new("https://github.com/nao1215/qrkit")
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.with_min_version(5)
     |> qrkit.build
   qrkit.version(qr)
@@ -611,7 +612,7 @@ pub fn reserved_areas_intact_at_v25_test() -> Nil {
   // takes (column, row).
   let assert Ok(qr) =
     qrkit.new(string.repeat("0123456789", 30))
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.with_min_version(25)
     |> qrkit.build
   qrkit.version(qr)
@@ -646,7 +647,7 @@ pub fn utf8_round_trip_through_byte_mode_test() -> Nil {
   let payload = "日本語テスト 🇯🇵"
   let assert Ok(qr) = qrkit.encode(payload)
   qrkit.symbol(qr)
-  |> should.equal(error.Standard)
+  |> should.equal(types.Standard)
   // The QR matrix is square.
   qrkit.width(qr)
   |> should.equal(qrkit.height(qr))
@@ -692,7 +693,7 @@ pub fn payload_exceeds_v40_capacity_errors_test() -> Nil {
   let huge = string.repeat("X", 5000)
   let result =
     qrkit.new(huge)
-    |> qrkit.with_ecc(error.High)
+    |> qrkit.with_ecc(types.High)
     |> qrkit.build
   case result {
     Error(error.DataExceedsCapacity(_, _)) -> Nil

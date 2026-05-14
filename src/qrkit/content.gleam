@@ -160,7 +160,11 @@ pub opaque type CalendarEvent {
 }
 
 /// Create a calendar event payload builder.
-pub fn event(title: String, start_unix: Int, end_unix: Int) -> CalendarEvent {
+pub fn event(
+  title title: String,
+  start_unix start_unix: Int,
+  end_unix end_unix: Int,
+) -> CalendarEvent {
   CalendarEvent(title, start_unix, end_unix, None, None, False)
 }
 

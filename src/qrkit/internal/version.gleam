@@ -1,10 +1,8 @@
 //// Standard QR Code version and capacity tables.
 
-import qrkit/error.{
-  type EncodeError, type ErrorCorrection, DataExceedsCapacity, High,
-  InvalidVersion, Low, Medium, Quartile,
-}
+import qrkit/error.{type EncodeError, DataExceedsCapacity, InvalidVersion}
 import qrkit/internal/util
+import qrkit/types.{type ErrorCorrection, High, Low, Medium, Quartile}
 
 const total_codewords_table = [
   0, 26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466, 532, 581, 655, 733,

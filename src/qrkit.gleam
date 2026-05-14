@@ -8,18 +8,19 @@ import qrkit/internal/rmqr
 import qrkit/internal/standard
 import qrkit/internal/structured_append
 import qrkit/internal/util
+import qrkit/types
 
 pub type ErrorCorrection =
-  error.ErrorCorrection
+  types.ErrorCorrection
 
 pub type Mode =
-  error.Mode
+  types.Mode
 
 pub type ModePreference =
-  error.ModePreference
+  types.ModePreference
 
 pub type Symbol =
-  error.Symbol
+  types.Symbol
 
 pub type EncodeError =
   error.EncodeError
@@ -42,6 +43,7 @@ pub opaque type QrCode {
     height: Int,
     ecc: ErrorCorrection,
     symbol: Symbol,
+    mask: Int,
     rows: List(List(Bool)),
   )
 }
@@ -53,7 +55,7 @@ pub fn package_version() -> String {
 
 /// Create a new builder from input text.
 pub fn new(data: String) -> Builder {
-  Builder(data, error.Medium, 1, None, error.Standard, error.Auto)
+  Builder(data, types.Medium, 1, None, types.Standard, types.Auto)
 }
 
 /// Encode input text using the default builder configuration.
@@ -67,7 +69,9 @@ pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
   Builder(data, ecc, min_version, eci, symbol, preference)
 }
 
-/// Set the minimum standard QR version that may be used.
+/// Set the minimum symbol version. The value is interpreted relative to the
+/// active symbol family: Standard QR accepts 1..40, Micro QR accepts 1..4 (M1..M4),
+/// and rMQR accepts 1..32 (R7x43..R17x139).
 pub fn with_min_version(builder: Builder, min_version: Int) -> Builder {
   let Builder(data, ecc, _, eci, symbol, preference) = builder
   Builder(data, ecc, min_version, eci, symbol, preference)
@@ -100,11 +104,11 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
   case data == "" {
     True -> Error(error.EmptyInput)
     False ->
-      case min_version < 1 || min_version > 40 {
-        True -> Error(error.InvalidVersion(min_version))
-        False ->
+      case validate_min_version(min_version, symbol) {
+        Error(error) -> Error(error)
+        Ok(Nil) ->
           case symbol {
-            error.Standard ->
+            types.Standard ->
               case standard.encode(data, ecc, min_version, eci, preference) {
                 Ok(encoded) ->
                   Ok(QrCode(
@@ -113,19 +117,13 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
                     standard.height(encoded),
                     ecc,
                     symbol,
+                    standard.mask(encoded),
                     standard.rows(encoded),
                   ))
                 Error(encode_error) -> Error(encode_error)
               }
-            error.Micro ->
-              case
-                micro.encode(
-                  data,
-                  ecc,
-                  clamp_micro_version(min_version),
-                  preference,
-                )
-              {
+            types.Micro ->
+              case micro.encode(data, ecc, min_version, preference) {
                 Ok(encoded) ->
                   Ok(QrCode(
                     micro.version(encoded),
@@ -133,11 +131,12 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
                     micro.height(encoded),
                     ecc,
                     symbol,
+                    micro.mask(encoded),
                     micro.rows(encoded),
                   ))
                 Error(encode_error) -> Error(encode_error)
               }
-            error.Rectangular ->
+            types.Rectangular ->
               case rmqr.encode(data, ecc, min_version, preference) {
                 Ok(encoded) ->
                   Ok(QrCode(
@@ -146,6 +145,7 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
                     rmqr.height(encoded),
                     ecc,
                     symbol,
+                    rmqr.mask(encoded),
                     rmqr.rows(encoded),
                   ))
                 Error(encode_error) -> Error(encode_error)
@@ -155,17 +155,42 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
   }
 }
 
+fn validate_min_version(
+  min_version: Int,
+  symbol: Symbol,
+) -> Result(Nil, EncodeError) {
+  let upper = case symbol {
+    types.Standard -> 40
+    types.Micro -> 4
+    types.Rectangular -> 32
+  }
+  case min_version < 1 || min_version > upper {
+    True -> Error(error.InvalidVersion(min_version))
+    False -> Ok(Nil)
+  }
+}
+
 /// Split data into multiple symbols using Structured Append (ISO/IEC 18004 §8.2).
 ///
 /// Each returned QR carries the 20-bit Structured Append header so a compliant
 /// reader can reassemble the original message. When `data` fits in a single QR
 /// at `max_version`, the returned list contains exactly one symbol with no SA
-/// header.
+/// header. Uses the Medium error correction level — call `encode_split_with`
+/// for a different level.
 pub fn encode_split(
   data: String,
   max_version: Int,
 ) -> Result(List(QrCode), EncodeError) {
-  case structured_append.encode(data, max_version, error.Medium) {
+  encode_split_with(data, max_version, types.Medium)
+}
+
+/// Same as `encode_split` but with a caller-chosen error correction level.
+pub fn encode_split_with(
+  data: String,
+  max_version: Int,
+  ecc: ErrorCorrection,
+) -> Result(List(QrCode), EncodeError) {
+  case structured_append.encode(data, max_version, ecc) {
     Error(error) -> Error(error)
     Ok(encodes) ->
       Ok(
@@ -174,8 +199,9 @@ pub fn encode_split(
             standard.version(encoded),
             standard.width(encoded),
             standard.height(encoded),
-            error.Medium,
-            error.Standard,
+            ecc,
+            types.Standard,
+            standard.mask(encoded),
             standard.rows(encoded),
           )
         }),
@@ -183,32 +209,29 @@ pub fn encode_split(
   }
 }
 
-/// Return the standard QR version number.
+/// Return the symbol version number. Standard QR returns 1..40, Micro QR 1..4
+/// (M1..M4), and rMQR 1..32 (R7x43..R17x139).
 pub fn version(qr: QrCode) -> Int {
-  let QrCode(version, _, _, _, _, _) = qr
+  let QrCode(version, _, _, _, _, _, _) = qr
   version
 }
 
-/// Return the symbol side length in modules.
+/// Return the symbol side length in modules. For non-square rMQR symbols this
+/// is the width; use `width` and `height` for the explicit dimensions.
 pub fn size(qr: QrCode) -> Int {
-  let QrCode(_, width, _, _, _, _) = qr
+  let QrCode(_, width, _, _, _, _, _) = qr
   width
-}
-
-/// Alias for `size/1` for square symbols.
-pub fn side_length(qr: QrCode) -> Int {
-  size(qr)
 }
 
 /// Return the symbol width in modules.
 pub fn width(qr: QrCode) -> Int {
-  let QrCode(_, width, _, _, _, _) = qr
+  let QrCode(_, width, _, _, _, _, _) = qr
   width
 }
 
 /// Return the symbol height in modules.
 pub fn height(qr: QrCode) -> Int {
-  let QrCode(_, _, height, _, _, _) = qr
+  let QrCode(_, _, height, _, _, _, _) = qr
   height
 }
 
@@ -219,24 +242,31 @@ pub fn symbol_size(qr: QrCode) -> #(Int, Int) {
 
 /// Return the error correction level used by this symbol.
 pub fn error_correction(qr: QrCode) -> ErrorCorrection {
-  let QrCode(_, _, _, ecc, _, _) = qr
+  let QrCode(_, _, _, ecc, _, _, _) = qr
   ecc
 }
 
 /// Return the canonical single-letter ECC designator.
 pub fn error_correction_designator(ecc: ErrorCorrection) -> String {
   case ecc {
-    error.Low -> "L"
-    error.Medium -> "M"
-    error.Quartile -> "Q"
-    error.High -> "H"
+    types.Low -> "L"
+    types.Medium -> "M"
+    types.Quartile -> "Q"
+    types.High -> "H"
   }
 }
 
 /// Return the symbol family used by this QR code.
 pub fn symbol(qr: QrCode) -> Symbol {
-  let QrCode(_, _, _, _, symbol, _) = qr
+  let QrCode(_, _, _, _, symbol, _, _) = qr
   symbol
+}
+
+/// Return the mask pattern that was applied. Standard QR returns 0..7,
+/// Micro QR 0..3, and rMQR always 4 (rMQR uses a single fixed mask).
+pub fn mask(qr: QrCode) -> Int {
+  let QrCode(_, _, _, _, _, mask, _) = qr
+  mask
 }
 
 /// Return a single module from the symbol matrix.
@@ -253,14 +283,6 @@ pub fn module_at(qr: QrCode, x: Int, y: Int) -> Bool {
 
 /// Return the symbol matrix as rows of booleans.
 pub fn rows(qr: QrCode) -> List(List(Bool)) {
-  let QrCode(_, _, _, _, _, rows) = qr
+  let QrCode(_, _, _, _, _, _, rows) = qr
   rows
-}
-
-fn clamp_micro_version(min_version: Int) -> Int {
-  case min_version {
-    value if value < 1 -> 1
-    value if value > 4 -> 4
-    value -> value
-  }
 }

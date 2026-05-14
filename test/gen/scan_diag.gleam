@@ -5,9 +5,9 @@ import gleam/list
 import gleam/string
 import qrkit
 import qrkit/content
-import qrkit/error
 import qrkit/internal/util
 import qrkit/render/png
+import qrkit/types
 import simplifile
 
 const out_dir: String = "/tmp/qr-decode/samples"
@@ -55,10 +55,10 @@ pub fn main() -> Nil {
 
   // All ECC levels for same payload
   let eccs = [
-    #("11_url_L.png", error.Low),
-    #("12_url_M.png", error.Medium),
-    #("13_url_Q.png", error.Quartile),
-    #("14_url_H.png", error.High),
+    #("11_url_L.png", types.Low),
+    #("12_url_M.png", types.Medium),
+    #("13_url_Q.png", types.Quartile),
+    #("14_url_H.png", types.High),
   ]
   list.each(eccs, fn(pair) {
     let #(name, ecc) = pair
@@ -108,20 +108,20 @@ pub fn main() -> Nil {
 
   // Micro QR variants
   let micros = [
-    #("micro_m1.png", "12345", error.Low),
-    #("micro_m2_l.png", "01234567", error.Low),
-    #("micro_m2_m.png", "ABCDEF", error.Medium),
-    #("micro_m3_l.png", "01234567890123", error.Low),
-    #("micro_m3_m.png", "hello", error.Medium),
-    #("micro_m4_l.png", "abcdefghijklmno", error.Low),
-    #("micro_m4_q.png", "12345", error.Quartile),
+    #("micro_m1.png", "12345", types.Low),
+    #("micro_m2_l.png", "01234567", types.Low),
+    #("micro_m2_m.png", "ABCDEF", types.Medium),
+    #("micro_m3_l.png", "01234567890123", types.Low),
+    #("micro_m3_m.png", "hello", types.Medium),
+    #("micro_m4_l.png", "abcdefghijklmno", types.Low),
+    #("micro_m4_q.png", "12345", types.Quartile),
   ]
   list.each(micros, fn(triple) {
     let #(name, text, ecc) = triple
     try_save(
       name,
       qrkit.new(text)
-        |> qrkit.with_symbol(error.Micro)
+        |> qrkit.with_symbol(types.Micro)
         |> qrkit.with_ecc(ecc)
         |> qrkit.build,
     )

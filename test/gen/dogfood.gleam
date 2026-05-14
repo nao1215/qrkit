@@ -8,10 +8,10 @@ import gleam/list
 import gleam/string
 import qrkit
 import qrkit/content
-import qrkit/error
 import qrkit/render/ascii
 import qrkit/render/png
 import qrkit/render/svg
+import qrkit/types
 import simplifile
 
 const out_dir: String = "/tmp/qr-decode/dogfood"
@@ -41,7 +41,7 @@ fn app_business_card() -> Nil {
 
   io.println("payload length: " <> int.to_string(string.length(payload)))
   let assert Ok(qr) =
-    qrkit.new(payload) |> qrkit.with_ecc(error.Quartile) |> qrkit.build
+    qrkit.new(payload) |> qrkit.with_ecc(types.Quartile) |> qrkit.build
   io.println(
     "qr version="
     <> int.to_string(qrkit.version(qr))
@@ -116,8 +116,8 @@ fn app_rmqr_label() -> Nil {
   let payload = "PROD-2026-0042"
   let assert Ok(qr) =
     qrkit.new(payload)
-    |> qrkit.with_symbol(error.Rectangular)
-    |> qrkit.with_ecc(error.Medium)
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_ecc(types.Medium)
     |> qrkit.build
   io.println(
     "rMQR dims="
@@ -137,8 +137,8 @@ fn app_micro_business_card() -> Nil {
   let payload = "TEL:+81900000000"
   let assert Ok(qr) =
     qrkit.new(payload)
-    |> qrkit.with_symbol(error.Micro)
-    |> qrkit.with_ecc(error.Low)
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_ecc(types.Low)
     |> qrkit.build
   io.println(
     "Micro QR M"
@@ -175,7 +175,7 @@ fn app_huge_payload() -> Nil {
   let payload = string.repeat("0123456789", 70)
   let assert Ok(qr) =
     qrkit.new(payload)
-    |> qrkit.with_ecc(error.Low)
+    |> qrkit.with_ecc(types.Low)
     |> qrkit.build
   io.println(
     "huge payload "
