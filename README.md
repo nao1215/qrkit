@@ -35,7 +35,7 @@ pub fn main() {
 
 `qrkit.encode/1` picks the smallest version that fits and defaults to ECC level Medium. The returned `QrCode` is opaque — use the renderers in `qrkit/render/*` to turn it into pixels.
 
-## Builder for ECC, version, and ECI
+## Builder for ECC, exact version, and ECI
 
 ```gleam
 import qrkit
@@ -45,14 +45,14 @@ pub fn high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.with_min_version(4)
+    |> qrkit.with_exact_version(4)
     |> qrkit.with_eci(26)
     |> qrkit.build()
   qr
 }
 ```
 
-`with_ecc` selects an error correction level, `with_min_version` pins the symbol version (the build returns `Error(DataExceedsCapacity)` or `Error(IncompatibleOptions)` if the payload, mode, or ECC level does not fit at that version), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8). When `with_min_version` is omitted, `build` picks the smallest version that fits.
+`with_ecc` selects an error correction level, `with_exact_version` pins the symbol version (the build returns `Error(DataExceedsCapacity)` or `Error(IncompatibleOptions)` if the payload, mode, or ECC level does not fit at that version), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8). ECI is available on Standard QR only, and invalid designators surface as `Error(InvalidEciDesignator(..))`. When no exact version is configured, `build` picks the smallest version that fits. `with_min_version` is kept as a compatibility alias for older callers.
 
 ## Render as SVG for the browser
 
@@ -217,7 +217,7 @@ import qrkit/content
 
 pub fn meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
   // 2026-05-14 10:00 UTC, ends 11:00 UTC.
-  content.event(title: "Sync", start_unix: 1_778_745_600, end_unix: 1_778_749_200)
+  content.event(title: "Sync", start_unix: 1_778_752_800, end_unix: 1_778_756_400)
   |> content.with_location("Online")
   |> content.with_description("Project sync meeting")
   |> content.event_to_string
@@ -234,11 +234,12 @@ import qrkit
 import qrkit/types
 
 pub fn describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
+  let assert Ok(top_left) = qrkit.module_at(qr, 0, 0)
   #(
     qrkit.version(qr),
     qrkit.size(qr),
     qrkit.error_correction_designator(qrkit.error_correction(qr)),
-    qrkit.module_at(qr, 0, 0),
+    top_left,
   )
 }
 
@@ -248,7 +249,7 @@ pub fn ecc_letter_for_quartile() -> String {
 }
 ```
 
-`qrkit.rows/1` returns the matrix as `List(List(Bool))` for custom renderers.
+`qrkit.rows/1` returns the matrix as `List(List(Bool))` for custom renderers. `qrkit.module_at/3` returns `Error(ModuleOutOfBounds(..))` for invalid coordinates instead of silently treating them as light modules.
 
 ## Micro QR
 
@@ -263,7 +264,7 @@ pub fn business_card_qr() -> String {
   let assert Ok(qr) =
     qrkit.new("01234567")
     |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_min_version(2)
+    |> qrkit.with_exact_version(2)
     |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
@@ -333,10 +334,11 @@ pub fn raw_byte_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
 
 ## Errors
 
-Every public entry point returns `Result(_, qrkit.EncodeError)`. The variants live in `qrkit/error` and are:
+Every public encoding entry point returns `Result(_, qrkit.EncodeError)`. The variants live in `qrkit/error` and are:
 
 - `EmptyInput` — empty `data`.
 - `InvalidVersion(requested)` — version outside the symbol family.
+- `InvalidEciDesignator(designator)` — ECI assignment number outside `0..999999`.
 - `DataExceedsCapacity(bits_needed, bits_available)` — payload does not fit.
 - `UnsupportedCharacter(at_index, character)` — a character the chosen mode cannot encode.
 - `IncompatibleOptions(reason)` — combination not allowed (for example, rMQR with Low ECC).
@@ -374,7 +376,7 @@ Full API reference: <https://hexdocs.pm/qrkit/>.
 - `qrkit` does not sanity-check the payload — if you stuff `javascript:` URIs, otpauth secrets, or attacker-controlled text into a QR, the receiving app will get exactly that. Validate before encoding.
 - The SVG renderer escapes caller-supplied `dark_color` / `light_color` values so a hostile colour cannot break out of the `fill="..."` attribute. That is the only escaping it performs; the surrounding `<svg>` document is not a sanitiser. Treat the output as untrusted markup when embedding it into arbitrary HTML, and pass it through a sanitiser such as DOMPurify on that boundary.
 - The library writes payload data into the matrix as-is. `EncodeError` variants never contain the input payload except for `UnsupportedCharacter`, which reports the single offending character; if that is a privacy concern (e.g., the QR carried a TOTP secret) handle the error before logging.
-- Every public entry point returns `Result(_, EncodeError)`. Invalid or unsupported input surfaces as a typed error variant (`DataExceedsCapacity`, `InvalidVersion`, …) rather than a runtime crash.
+- Every public encoding entry point returns `Result(_, EncodeError)`. Invalid or unsupported input surfaces as a typed error variant (`DataExceedsCapacity`, `InvalidVersion`, …) rather than a runtime crash.
 
 ## License
 

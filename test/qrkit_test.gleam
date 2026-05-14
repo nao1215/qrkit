@@ -19,10 +19,11 @@ pub fn main() -> Nil {
 }
 
 pub fn package_version_test() -> Nil {
-  // Cross-check the runtime-visible version against the single source
-  // of truth (`gleam.toml`). When a release bumps `gleam.toml` but
-  // forgets to bump `qrkit.package_version`, this test fails CI
-  // immediately rather than letting drift ship to Hex. See #2.
+  // Treat `gleam.toml` as the release metadata source of truth and
+  // cross-check the runtime-visible version against it. When a release
+  // bumps `gleam.toml` but forgets to bump `qrkit.package_version`,
+  // this test fails CI immediately rather than letting drift ship to
+  // Hex. See #2.
   let assert Ok(toml) = simplifile.read("gleam.toml")
   let assert Ok(version_in_toml) = extract_toml_version(toml)
   qrkit.package_version()
@@ -46,6 +47,11 @@ fn extract_toml_version(toml: String) -> Result(String, Nil) {
       Error(_) -> Error(Nil)
     }
   })
+}
+
+fn must_module_at(qr: qrkit.QrCode, x: Int, y: Int) -> Bool {
+  let assert Ok(value) = qrkit.module_at(qr, x, y)
+  value
 }
 
 pub fn encode_returns_square_symbol_test() -> Nil {
@@ -126,6 +132,41 @@ pub fn vcard_content_helper_test() -> Nil {
   )
 }
 
+pub fn email_content_percent_encodes_reserved_chars_test() -> Nil {
+  content.email(
+    to: "you@example.com",
+    subject: "status & next?",
+    body: "100% ready = yes\nship it",
+  )
+  |> should.equal(
+    "mailto:you@example.com?subject=status%20%26%20next%3F&body=100%25%20ready%20%3D%20yes%0Aship%20it",
+  )
+}
+
+pub fn vcard_escapes_reserved_chars_test() -> Nil {
+  content.vcard()
+  |> content.with_name("Nao;Inc,\nDev")
+  |> content.with_address("Tokyo;JP,\nLine2")
+  |> content.vcard_to_string()
+  |> should.equal(
+    "BEGIN:VCARD\nVERSION:3.0\nN:Nao\\;Inc\\,\\nDev\nFN:Nao\\;Inc\\,\\nDev\nADR:Tokyo\\;JP\\,\\nLine2\nEND:VCARD",
+  )
+}
+
+pub fn calendar_event_escapes_text_fields_test() -> Nil {
+  content.event(
+    title: "Sync;One,Two",
+    start_unix: 1_778_752_800,
+    end_unix: 1_778_756_400,
+  )
+  |> content.with_location("Room;A,\nTokyo")
+  |> content.with_description("Line1\nLine2;done,ok")
+  |> content.event_to_string()
+  |> should.equal(
+    "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:Sync\\;One\\,Two\nDTSTART:20260514T100000Z\nDTEND:20260514T110000Z\nLOCATION:Room\\;A\\,\\nTokyo\nDESCRIPTION:Line1\\nLine2\\;done\\,ok\nEND:VEVENT\nEND:VCALENDAR",
+  )
+}
+
 pub fn ascii_renderer_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
   ascii.to_string(qr)
@@ -146,11 +187,11 @@ pub fn svg_renderer_test() -> Nil {
 pub fn hello_world_has_finder_patterns_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
   should.equal(qrkit.version(qr), 1)
-  should.equal(qrkit.module_at(qr, 0, 0), True)
-  should.equal(qrkit.module_at(qr, 6, 0), True)
-  should.equal(qrkit.module_at(qr, 0, 6), True)
-  should.equal(qrkit.module_at(qr, 20, 0), True)
-  should.equal(qrkit.module_at(qr, 0, 20), True)
+  should.equal(must_module_at(qr, 0, 0), True)
+  should.equal(must_module_at(qr, 6, 0), True)
+  should.equal(must_module_at(qr, 0, 6), True)
+  should.equal(must_module_at(qr, 20, 0), True)
+  should.equal(must_module_at(qr, 0, 20), True)
 }
 
 pub fn hello_world_matches_reference_matrix_test() -> Nil {
@@ -310,14 +351,14 @@ pub fn v7_decodes_to_input_text_test() -> Nil {
   |> should.equal(45)
 
   // Centre alignment (22, 22) must be dark.
-  qrkit.module_at(qr, 22, 22)
+  must_module_at(qr, 22, 22)
   |> should.equal(True)
   // Off-centre alignment-pattern corners around (22, 22) — the 5x5 pattern
   // has dark outer ring + light interior + dark centre, so (20, 22) (top
   // edge of the pattern) is dark, (21, 22) (one inside) is light.
-  qrkit.module_at(qr, 22, 20)
+  must_module_at(qr, 22, 20)
   |> should.equal(True)
-  qrkit.module_at(qr, 22, 21)
+  must_module_at(qr, 22, 21)
   |> should.equal(False)
 }
 
@@ -348,7 +389,7 @@ pub fn micro_qr_m1_half_codeword_test() -> Nil {
   |> should.equal(11)
   qrkit.height(qr)
   |> should.equal(11)
-  qrkit.module_at(qr, 0, 0)
+  must_module_at(qr, 0, 0)
   |> should.equal(True)
 }
 
@@ -420,7 +461,7 @@ pub fn rmqr_r7x43_default_test() -> Nil {
   |> should.equal(7)
   qrkit.symbol(qr)
   |> should.equal(types.Rectangular)
-  qrkit.module_at(qr, 0, 0)
+  must_module_at(qr, 0, 0)
   |> should.equal(True)
 }
 
@@ -646,23 +687,33 @@ pub fn reserved_areas_intact_at_v25_test() -> Nil {
   |> should.equal(25)
 
   // All three finder pattern corners are 7x7 squares with dark outer rings.
-  qrkit.module_at(qr, 0, 0) |> should.be_true
-  qrkit.module_at(qr, 6, 0) |> should.be_true
-  qrkit.module_at(qr, 110, 0) |> should.be_true
-  qrkit.module_at(qr, 116, 0) |> should.be_true
-  qrkit.module_at(qr, 0, 110) |> should.be_true
-  qrkit.module_at(qr, 0, 116) |> should.be_true
+  must_module_at(qr, 0, 0) |> should.be_true
+  must_module_at(qr, 6, 0) |> should.be_true
+  must_module_at(qr, 110, 0) |> should.be_true
+  must_module_at(qr, 116, 0) |> should.be_true
+  must_module_at(qr, 0, 110) |> should.be_true
+  must_module_at(qr, 0, 116) |> should.be_true
 
   // The always-dark module at (8, 4 * version + 9) — ISO/IEC 18004 §6.9.
-  qrkit.module_at(qr, 8, 109)
+  must_module_at(qr, 8, 109)
   |> should.be_true
 
   // Timing pattern at row 6 / col 6 alternates dark/light starting dark.
-  qrkit.module_at(qr, 8, 6) |> should.be_true
-  qrkit.module_at(qr, 9, 6) |> should.be_false
-  qrkit.module_at(qr, 10, 6) |> should.be_true
-  qrkit.module_at(qr, 6, 8) |> should.be_true
-  qrkit.module_at(qr, 6, 9) |> should.be_false
+  must_module_at(qr, 8, 6) |> should.be_true
+  must_module_at(qr, 9, 6) |> should.be_false
+  must_module_at(qr, 10, 6) |> should.be_true
+  must_module_at(qr, 6, 8) |> should.be_true
+  must_module_at(qr, 6, 9) |> should.be_false
+}
+
+pub fn module_at_out_of_bounds_errors_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  qrkit.module_at(qr, -1, 0)
+  |> should.equal(Error(error.ModuleOutOfBounds(-1, 0, 21, 21)))
+  qrkit.module_at(qr, 21, 0)
+  |> should.equal(Error(error.ModuleOutOfBounds(21, 0, 21, 21)))
+  qrkit.module_at(qr, 0, 21)
+  |> should.equal(Error(error.ModuleOutOfBounds(0, 21, 21, 21)))
 }
 
 // ---------------------------------------------------------------------------
@@ -728,14 +779,50 @@ pub fn payload_exceeds_v40_capacity_errors_test() -> Nil {
   }
 }
 
+pub fn negative_eci_designator_errors_test() -> Nil {
+  qrkit.new("HELLO")
+  |> qrkit.with_eci(-1)
+  |> qrkit.build()
+  |> should.equal(Error(error.InvalidEciDesignator(-1)))
+}
+
+pub fn oversized_eci_designator_errors_test() -> Nil {
+  qrkit.new("HELLO")
+  |> qrkit.with_eci(1_000_000)
+  |> qrkit.build()
+  |> should.equal(Error(error.InvalidEciDesignator(1_000_000)))
+}
+
+pub fn eci_is_rejected_for_micro_qr_test() -> Nil {
+  let result =
+    qrkit.new("12345")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_eci(26)
+    |> qrkit.build()
+  case result {
+    Error(error.IncompatibleOptions(_)) -> Nil
+    _ -> should.fail()
+  }
+}
+
 // ---------------------------------------------------------------------------
-// `with_min_version` is a strict floor.
+// `with_exact_version` is the preferred exact-version API, and
+// `with_min_version` remains a compatibility alias for the same behaviour.
 //
-// When the caller passes `with_min_version(N)`, the builder must use exactly
-// version N — capacity overflow, mode incompatibility, or ECC incompatibility
-// at N must surface as a typed `Error`, not silently promote to N+1. Tests
-// below pin each of those error paths.
+// When the caller pins version N, the builder must use exactly version N —
+// capacity overflow, mode incompatibility, or ECC incompatibility at N must
+// surface as a typed `Error`, not silently promote to N+1. Tests below pin
+// each of those error paths.
 // ---------------------------------------------------------------------------
+
+pub fn exact_version_pins_exact_version_test() -> Nil {
+  let assert Ok(qr) =
+    qrkit.new("HI")
+    |> qrkit.with_exact_version(5)
+    |> qrkit.build
+  qrkit.version(qr)
+  |> should.equal(5)
+}
 
 pub fn strict_standard_overflow_at_min_version_errors_test() -> Nil {
   // v1 ECC-M Alphanumeric capacity is 20 chars. 100 chars cannot fit at v1,
@@ -816,9 +903,7 @@ pub fn strict_rmqr_overflow_errors_test() -> Nil {
 }
 
 pub fn strict_min_version_pins_exact_version_test() -> Nil {
-  // A payload that fits at v1 but the caller asks for v5 must produce v5,
-  // not v1 — the floor is honoured even when the payload would otherwise
-  // fit at a smaller version.
+  // Legacy alias coverage: `with_min_version` still pins the version exactly.
   let assert Ok(qr) =
     qrkit.new("HI")
     |> qrkit.with_min_version(5)
@@ -862,6 +947,18 @@ pub fn svg_dark_color_escaped_test() -> Nil {
   |> should.be_true
 }
 
+pub fn svg_dimension_options_normalize_invalid_values_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let options =
+    svg.default_options()
+    |> svg.with_module_size(0)
+    |> svg.with_margin(-3)
+  let document = svg.to_string(qr, options)
+
+  string.contains(does: document, contain: "viewBox=\"0 0 21 21\"")
+  |> should.be_true
+}
+
 pub fn png_renderer_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
   let image = png.to_bit_array(qr, scale: 2, margin: 4)
@@ -876,6 +973,14 @@ pub fn png_renderer_test() -> Nil {
   let assert Ok(dimensions) = bit_array.slice(image, at: 16, take: 8)
   dimensions
   |> should.equal(<<0, 0, 0, 58, 0, 0, 0, 58>>)
+}
+
+pub fn png_renderer_normalizes_invalid_scale_and_margin_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let normalized = png.to_bit_array(qr, scale: 1, margin: 0)
+  let coerced = png.to_bit_array(qr, scale: 0, margin: -4)
+  coerced
+  |> should.equal(normalized)
 }
 
 fn rows_to_strings(rows: List(List(Bool))) -> List(String) {

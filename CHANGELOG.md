@@ -13,15 +13,23 @@ All notable changes to this project will be documented in this file.
   version that disagrees with Hex metadata. `CONTRIBUTING.md`'s release
   checklist was updated to call this out. (#2)
 
-- **Breaking**: `qrkit.with_min_version(N)` is now a strict floor. If the
-  payload, the chosen mode, or the chosen ECC level cannot be encoded at
-  version N, `qrkit.build` returns `Error(DataExceedsCapacity)` or
-  `Error(IncompatibleOptions)` instead of silently promoting to a larger
-  version. The historical "smallest fit" default is preserved for callers
-  that omit `with_min_version` entirely. This affects all three symbol
-  families (Standard QR, Micro QR, rMQR) and `qrkit.encode_split` is
-  unaffected (it still picks the smallest version per shard inside the
-  caller's `max_version` cap).
+- `qrkit/content` now escapes vCard / iCalendar text fields consistently
+  and uses proper URI percent-encoding for `mailto:` query parameters, so
+  reserved characters in user data no longer produce malformed payloads.
+  (#1)
+
+- `qrkit.with_exact_version/2` is now the preferred public API for exact
+  version pinning. `qrkit.with_min_version/2` remains available as a
+  compatibility alias, but its documentation now explicitly states that it
+  pins the version exactly rather than setting a lower bound. (#4)
+
+- **Breaking**: `qrkit.module_at/3` now returns
+  `Result(Bool, qrkit.MatrixAccessError)` instead of silently treating
+  out-of-bounds coordinates as light modules. Builder ECI validation is now
+  explicit as well: invalid designators return
+  `Error(InvalidEciDesignator(..))`, and non-Standard symbols reject ECI
+  with `Error(IncompatibleOptions(..))`. SVG option setters now normalize
+  invalid dimensions the same way the PNG renderer already did. (#3)
 
 ### Initial
 

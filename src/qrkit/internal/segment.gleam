@@ -2,7 +2,7 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import qrkit/error.{type EncodeError}
+import qrkit/error.{type EncodeError, InvalidEciDesignator}
 import qrkit/internal/bitstream
 import qrkit/internal/mode
 import qrkit/internal/util
@@ -255,8 +255,8 @@ fn append_eci(
   stream: bitstream.BitStream,
   designator: Int,
 ) -> Result(bitstream.BitStream, EncodeError) {
-  case designator < 0 {
-    True -> Ok(stream)
+  case designator < 0 || designator > 999_999 {
+    True -> Error(InvalidEciDesignator(designator))
     False ->
       case designator < 128 {
         True ->
