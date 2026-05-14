@@ -114,17 +114,42 @@ pub fn save_png() -> Result(Nil, simplifile.FileError) {
 
 ## ASCII for the terminal
 
-`ascii.to_string/1` uses `██` blocks with a 4-module quiet zone. `ascii.to_string_compact/1` halves the vertical size by using `▀`/`▄` half-blocks, and `ascii.with_inverse/1` swaps light and dark.
+`ascii.to_string/1` uses `██` full blocks with a 4-module quiet zone. `ascii.to_string_compact/1` halves the vertical size by using `▀`/`▄` half-blocks (the most compact for LLM chat windows and narrow terminals), and `ascii.with_inverse/1` swaps light and dark for dark-themed terminals.
 
 ```gleam
+import gleam/io
 import qrkit
 import qrkit/render/ascii
 
-pub fn compact_qr() -> String {
-  let assert Ok(qr) = qrkit.encode("HELLO")
-  ascii.to_string_compact(qr)
+pub fn main() {
+  let assert Ok(qr) = qrkit.encode("https://nao1215.dev")
+  io.println(ascii.to_string_compact(qr))
 }
 ```
+
+Running the snippet above prints (the leading / trailing blank lines are the 4-module quiet zone QR readers need):
+
+```
+
+
+    █▀▀▀▀▀█  ▀█▄█ ▄▄▀ █▀▀▀▀▀█
+    █ ███ █ █▄▄██▄██▀ █ ███ █
+    █ ▀▀▀ █ ██ ▄ ▄█▄▀ █ ▀▀▀ █
+    ▀▀▀▀▀▀▀ █▄▀ █ ▀ █ ▀▀▀▀▀▀▀
+    ▀ █▀██▀▄▄█ ▄ ▄    ▀█▀▀▀▄
+      ▀▀▀█▀▀ ▄▀█▀█▀██▄█▄█▀ ▀█
+    ▄ █▄▀█▀ █▄  ▀ ▀▀▀▀▀▄▀▄▀█▀
+    █ ▀█▄▀▀    █▀ ▄█▀█ ██▀ ▀█
+    ▀ ▀  ▀▀▀█▄█▀▄▄▄▀█▀▀▀█▄▀
+    █▀▀▀▀▀█ ▄ █ ▄█▀▄█ ▀ █▄▀█▀
+    █ ███ █ █ █ ▀ ▀██▀█▀█▄█▄█
+    █ ▀▀▀ █ ▀▀▀█▀ ▄▀▄▀▄▄▄█▀ █
+    ▀▀▀▀▀▀▀ ▀▀▀▀   ▀ ▀▀▀▀▀▀▀▀
+
+
+```
+
+This block is scannable directly from the terminal screen with a phone camera. For dark-themed terminals call `ascii.with_inverse(qr)` instead, and for double-width pixels use `ascii.to_string(qr)`.
 
 ## WiFi credentials
 
