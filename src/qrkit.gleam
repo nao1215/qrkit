@@ -39,7 +39,7 @@ pub opaque type Builder {
   Builder(
     data: String,
     ecc: ErrorCorrection,
-    min_version: Int,
+    min_version: Option(Int),
     eci: Option(Int),
     symbol: Symbol,
     preference: ModePreference,
@@ -65,7 +65,7 @@ pub fn package_version() -> String {
 
 /// Create a new builder from input text.
 pub fn new(data: String) -> Builder {
-  Builder(data, types.Medium, 1, None, types.Standard, types.Auto)
+  Builder(data, types.Medium, None, None, types.Standard, types.Auto)
 }
 
 /// Encode input text using the default builder configuration.
@@ -79,12 +79,21 @@ pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
   Builder(data, ecc, min_version, eci, symbol, preference)
 }
 
-/// Set the minimum symbol version. The value is interpreted relative to the
-/// active symbol family: Standard QR accepts 1..40, Micro QR accepts 1..4 (M1..M4),
-/// and rMQR accepts 1..32 (R7x43..R17x139).
+/// Set the minimum symbol version as a **strict floor**: the build will use
+/// exactly this version, not silently promote to a larger one.
+///
+/// The value is interpreted relative to the active symbol family: Standard QR
+/// accepts 1..40, Micro QR accepts 1..4 (M1..M4), and rMQR accepts 1..32
+/// (R7x43..R17x139).
+///
+/// If the payload, mode, or ECC level cannot be satisfied at the requested
+/// version, `build` returns `Error(DataExceedsCapacity)` or
+/// `Error(IncompatibleOptions)` instead of bumping to a larger version. When
+/// `with_min_version` is not called, the encoder selects the smallest version
+/// that fits the payload (the original "smallest fit" default).
 pub fn with_min_version(builder: Builder, min_version: Int) -> Builder {
   let Builder(data, ecc, _, eci, symbol, preference) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference)
+  Builder(data, ecc, Some(min_version), eci, symbol, preference)
 }
 
 /// Add an optional ECI assignment designator before the data segments.
@@ -166,17 +175,22 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
 }
 
 fn validate_min_version(
-  min_version: Int,
+  min_version: Option(Int),
   symbol: Symbol,
 ) -> Result(Nil, EncodeError) {
-  let upper = case symbol {
-    types.Standard -> 40
-    types.Micro -> 4
-    types.Rectangular -> 32
-  }
-  case min_version < 1 || min_version > upper {
-    True -> Error(error.InvalidVersion(min_version))
-    False -> Ok(Nil)
+  case min_version {
+    None -> Ok(Nil)
+    Some(value) -> {
+      let upper = case symbol {
+        types.Standard -> 40
+        types.Micro -> 4
+        types.Rectangular -> 32
+      }
+      case value < 1 || value > upper {
+        True -> Error(error.InvalidVersion(value))
+        False -> Ok(Nil)
+      }
+    }
   }
 }
 

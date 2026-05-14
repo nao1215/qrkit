@@ -702,6 +702,114 @@ pub fn payload_exceeds_v40_capacity_errors_test() -> Nil {
 }
 
 // ---------------------------------------------------------------------------
+// `with_min_version` is a strict floor.
+//
+// When the caller passes `with_min_version(N)`, the builder must use exactly
+// version N — capacity overflow, mode incompatibility, or ECC incompatibility
+// at N must surface as a typed `Error`, not silently promote to N+1. Tests
+// below pin each of those error paths.
+// ---------------------------------------------------------------------------
+
+pub fn strict_standard_overflow_at_min_version_errors_test() -> Nil {
+  // v1 ECC-M Alphanumeric capacity is 20 chars. 100 chars cannot fit at v1,
+  // so a strict v1 must return DataExceedsCapacity rather than promoting.
+  let payload = string.repeat("A", 100)
+  let result =
+    qrkit.new(payload)
+    |> qrkit.with_min_version(1)
+    |> qrkit.build
+  case result {
+    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn strict_micro_m1_byte_mode_errors_test() -> Nil {
+  // M1 only encodes Numeric mode per ISO/IEC 18004 Annex K.
+  // Byte input ("abc") at M1 must surface IncompatibleOptions, not promote.
+  let result =
+    qrkit.new("abc")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_min_version(1)
+    |> qrkit.build
+  case result {
+    Error(error.IncompatibleOptions(_)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn strict_micro_m1_medium_ecc_errors_test() -> Nil {
+  // M1 supports error-detection only — no L/M/Q/H ECC levels.
+  // `Micro + min_version=1 + ecc=Medium` must surface IncompatibleOptions,
+  // not silently promote to M2 (which does support Medium).
+  let result =
+    qrkit.new("123")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_min_version(1)
+    |> qrkit.with_ecc(types.Medium)
+    |> qrkit.build
+  case result {
+    Error(error.IncompatibleOptions(_)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn strict_micro_m1_overflow_errors_test() -> Nil {
+  // M1 + Low ECC holds 5 numeric digits (20 bits). 8 digits exceeds capacity,
+  // so a strict M1 + Low must surface DataExceedsCapacity, not promote to M2.
+  // (default ECC = Medium would be caught earlier by the M1 ECC-incompatibility
+  // path; see strict_micro_m1_medium_ecc_errors_test for that case.)
+  let result =
+    qrkit.new("01234567")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_min_version(1)
+    |> qrkit.with_ecc(types.Low)
+    |> qrkit.build
+  case result {
+    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn strict_rmqr_overflow_errors_test() -> Nil {
+  // rMQR R7×43 (index 1) at Medium ECC holds a small payload. A very long
+  // payload at rMQR + min_version=1 must surface DataExceedsCapacity, not
+  // promote to a wider rMQR variant.
+  let huge = string.repeat("X", 500)
+  let result =
+    qrkit.new(huge)
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_min_version(1)
+    |> qrkit.with_ecc(types.Medium)
+    |> qrkit.build
+  case result {
+    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn strict_min_version_pins_exact_version_test() -> Nil {
+  // A payload that fits at v1 but the caller asks for v5 must produce v5,
+  // not v1 — the floor is honoured even when the payload would otherwise
+  // fit at a smaller version.
+  let assert Ok(qr) =
+    qrkit.new("HI")
+    |> qrkit.with_min_version(5)
+    |> qrkit.build
+  qrkit.version(qr)
+  |> should.equal(5)
+}
+
+pub fn default_smallest_fit_unchanged_test() -> Nil {
+  // When with_min_version is not called, build still picks the smallest
+  // fit — the strict behaviour only applies when the caller asks for a
+  // specific floor.
+  let assert Ok(qr) = qrkit.new("HI") |> qrkit.build
+  qrkit.version(qr)
+  |> should.equal(1)
+}
+
+// ---------------------------------------------------------------------------
 // SVG attribute injection — caller-supplied colours must be HTML-escaped so
 // they cannot break out of the `fill="..."` quote pair.
 // ---------------------------------------------------------------------------

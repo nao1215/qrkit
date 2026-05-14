@@ -3,7 +3,7 @@
 import gleam/bit_array
 import gleam/bool
 import gleam/list
-import gleam/option.{type Option}
+import gleam/option.{type Option, None, Some}
 import qrkit/error.{type EncodeError, DataExceedsCapacity}
 import qrkit/internal/bitstream
 import qrkit/internal/format_info
@@ -25,14 +25,25 @@ pub opaque type Encoded {
   )
 }
 
+/// Encode `text` as a Standard QR code.
+///
+/// `min_version` is `Some(N)` when the caller explicitly asked for a floor
+/// via `qrkit.with_min_version(N)`; in that case the encoder uses N as a
+/// strict version (a capacity overflow at N returns `Error` instead of
+/// promoting to a larger version). When `min_version` is `None`, the
+/// encoder picks the smallest version in 1..40 that fits the payload.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,
-  min_version: Int,
+  min_version: Option(Int),
   eci: Option(Int),
   preference: ModePreference,
 ) -> Result(Encoded, EncodeError) {
-  encode_prefixed(text, ecc, min_version, 40, eci, preference, <<>>)
+  let #(lo, hi) = case min_version {
+    None -> #(1, 40)
+    Some(n) -> #(n, n)
+  }
+  encode_prefixed(text, ecc, lo, hi, eci, preference, <<>>)
 }
 
 /// Encode while constraining the version range and prepending arbitrary header

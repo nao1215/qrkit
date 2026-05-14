@@ -38,7 +38,7 @@ fn readme_high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.with_min_version(3)
+    |> qrkit.with_min_version(4)
     |> qrkit.with_eci(26)
     |> qrkit.build()
   qr
@@ -48,8 +48,9 @@ pub fn readme_high_density_qr_test() -> Nil {
   let qr = readme_high_density_qr()
   qrkit.error_correction(qr)
   |> should.equal(types.Quartile)
-  { qrkit.version(qr) >= 3 }
-  |> should.be_true
+  // with_min_version is now a strict floor; we asked for v4 and must get v4.
+  qrkit.version(qr)
+  |> should.equal(4)
 }
 
 // ---------------------------------------------------------------------------

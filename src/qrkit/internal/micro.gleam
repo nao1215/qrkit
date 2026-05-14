@@ -5,6 +5,7 @@
 //// data placement follow the Micro QR rules.
 
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import qrkit/error.{
   type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
@@ -68,17 +69,23 @@ const format_info_table: List(Int) = [
   0x3E8D, 0x3BBA,
 ]
 
-/// Encode `text` into a Micro QR code of the smallest version that fits.
+/// Encode `text` into a Micro QR code.
+///
+/// `requested_version` is `Some(N)` when the caller explicitly asked for a
+/// floor via `qrkit.with_min_version(N)`, in which case the encoder uses N
+/// as a strict version (any mode/ECC/capacity mismatch surfaces as an
+/// `Error`). When `requested_version` is `None`, the encoder picks the
+/// smallest version that fits the payload.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Int,
+  requested_version: Option(Int),
   preference: ModePreference,
 ) -> Result(Encoded, EncodeError) {
-  use _ <- result_try(validate_version(requested_version))
+  use _ <- result_try(validate_requested(requested_version))
   use _ <- result_try(validate_ecc(ecc))
   use selected_mode <- result_try(select_mode(text, preference))
-  use chosen_version <- result_try(find_version(
+  use chosen_version <- result_try(resolve_version(
     text,
     selected_mode,
     ecc,
@@ -100,6 +107,78 @@ pub fn encode(
         matrix.rows(final_matrix),
       ))
     Error(error) -> Error(error)
+  }
+}
+
+fn validate_requested(
+  requested_version: Option(Int),
+) -> Result(Nil, EncodeError) {
+  case requested_version {
+    None -> Ok(Nil)
+    Some(value) -> validate_version(value)
+  }
+}
+
+/// Resolve the version the encoder should use.
+///
+/// - When `requested_version` is `None`, walk versions from `min_version`
+///   upward and pick the first that fits the payload (the historical
+///   "smallest fit" behaviour).
+/// - When `requested_version` is `Some(N)`, use N as a strict floor: if N
+///   cannot encode the mode, support the ECC level, or hold the payload,
+///   return a typed `Error` instead of silently promoting to N+1.
+fn resolve_version(
+  text: String,
+  selected_mode: Mode,
+  ecc: ErrorCorrection,
+  requested_version: Option(Int),
+) -> Result(Int, EncodeError) {
+  case requested_version {
+    None -> do_find_version(text, selected_mode, ecc, min_version)
+    Some(n) -> check_version(text, selected_mode, ecc, n)
+  }
+}
+
+/// Confirm a single, caller-requested Micro QR version. Returns the version
+/// when mode + ECC + capacity all check out; otherwise surfaces the precise
+/// `EncodeError` that explains the mismatch.
+fn check_version(
+  text: String,
+  selected_mode: Mode,
+  ecc: ErrorCorrection,
+  candidate: Int,
+) -> Result(Int, EncodeError) {
+  case mode_supported(selected_mode, candidate) {
+    False ->
+      Error(IncompatibleOptions(
+        "Micro QR M"
+        <> int_to_str(candidate)
+        <> " does not support the "
+        <> mode_name(selected_mode)
+        <> " mode",
+      ))
+    True ->
+      case data_capacity_bits(candidate, ecc) {
+        Error(error) -> Error(error)
+        Ok(capacity) ->
+          case encoded_bits(text, selected_mode, candidate) {
+            Error(error) -> Error(error)
+            Ok(required) ->
+              case required <= capacity {
+                True -> Ok(candidate)
+                False -> Error(DataExceedsCapacity(required, capacity))
+              }
+          }
+      }
+  }
+}
+
+fn mode_name(selected_mode: Mode) -> String {
+  case selected_mode {
+    Numeric -> "Numeric"
+    Alphanumeric -> "Alphanumeric"
+    Byte -> "Byte"
+    Kanji -> "Kanji"
   }
 }
 
@@ -217,15 +296,6 @@ fn refine_mode(current: Mode, next: Mode) -> Mode {
     Numeric, Alphanumeric -> Alphanumeric
     _, _ -> next
   }
-}
-
-fn find_version(
-  text: String,
-  selected_mode: Mode,
-  ecc: ErrorCorrection,
-  requested_version: Int,
-) -> Result(Int, EncodeError) {
-  do_find_version(text, selected_mode, ecc, requested_version)
 }
 
 fn do_find_version(

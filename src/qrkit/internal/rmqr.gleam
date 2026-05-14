@@ -5,6 +5,7 @@
 //// functional patterns and format info follow ISO/IEC 23941.
 
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import qrkit/error.{
   type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
@@ -123,25 +124,64 @@ const alignment_columns: List(Int) = [
   21, 0, 0, 0, 19, 39, 0, 0, 25, 51, 0, 0, 23, 49, 75, 0, 27, 55, 83, 111,
 ]
 
-/// Encode `text` into an rMQR symbol. `requested_version` is a 1-based index
-/// into the 32-version table (`1` = R7×43, `32` = R17×139). The encoder picks
-/// the smallest version that fits.
+/// Encode `text` into an rMQR symbol.
+///
+/// `requested_version` is `Some(N)` (1-based, 1 = R7×43, 32 = R17×139) when
+/// the caller explicitly asked for a floor via `qrkit.with_min_version(N)`;
+/// in that case the encoder uses N as a strict version (capacity overflow
+/// at N returns `Error` instead of promoting to N+1). When `requested_version`
+/// is `None`, the encoder picks the smallest version that fits.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Int,
+  requested_version: Option(Int),
   preference: ModePreference,
 ) -> Result(Encoded, EncodeError) {
   use _ <- result_try(validate_ecc(ecc))
   use selected_mode <- result_try(select_mode(text, preference))
-  let start_index = clamp_version_index(requested_version)
-  use chosen <- result_try(find_version(text, selected_mode, ecc, start_index))
+  use chosen <- result_try(resolve_version(
+    text,
+    selected_mode,
+    ecc,
+    requested_version,
+  ))
   use codewords <- result_try(create_codewords(text, selected_mode, ecc, chosen))
   let h_size = lookup_int(widths, chosen)
   let v_size = lookup_int(heights, chosen)
   let total = lookup_int(total_codewords_table, chosen)
   let final_matrix = build_matrix(chosen, ecc, h_size, v_size, total, codewords)
   Ok(Encoded(chosen + 1, h_size, v_size, matrix.rows(final_matrix)))
+}
+
+fn resolve_version(
+  text: String,
+  selected_mode: Mode,
+  ecc: ErrorCorrection,
+  requested_version: Option(Int),
+) -> Result(Int, EncodeError) {
+  case requested_version {
+    None -> find_version(text, selected_mode, ecc, 0)
+    Some(value) ->
+      case value < 1 || value > total_versions {
+        True -> Error(InvalidVersion(value))
+        False -> check_version(text, selected_mode, ecc, value - 1)
+      }
+  }
+}
+
+fn check_version(
+  text: String,
+  selected_mode: Mode,
+  ecc: ErrorCorrection,
+  candidate: Int,
+) -> Result(Int, EncodeError) {
+  let count_bits = lookup_cci(selected_mode, candidate)
+  let data_bits = 3 + count_bits + mode.data_bits_length(text, selected_mode)
+  let capacity = data_capacity_bits(candidate, ecc)
+  case data_bits <= capacity {
+    True -> Ok(candidate)
+    False -> Error(DataExceedsCapacity(data_bits, capacity))
+  }
 }
 
 /// Return `#(width, height)` for a 0-based rMQR version index.
@@ -203,17 +243,6 @@ fn refine_mode(current: Mode, next: Mode) -> Mode {
     Alphanumeric, Numeric -> Alphanumeric
     Numeric, Alphanumeric -> Alphanumeric
     _, _ -> next
-  }
-}
-
-fn clamp_version_index(requested: Int) -> Int {
-  case requested < 1 {
-    True -> 0
-    False ->
-      case requested > total_versions {
-        True -> total_versions - 1
-        False -> requested - 1
-      }
   }
 }
 

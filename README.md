@@ -45,14 +45,14 @@ pub fn high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
     qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.with_min_version(3)
+    |> qrkit.with_min_version(4)
     |> qrkit.with_eci(26)
     |> qrkit.build()
   qr
 }
 ```
 
-`with_ecc` selects an error correction level, `with_min_version` raises the minimum version (handy when you want a fixed size), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8).
+`with_ecc` selects an error correction level, `with_min_version` pins the symbol version (the build returns `Error(DataExceedsCapacity)` or `Error(IncompatibleOptions)` if the payload, mode, or ECC level does not fit at that version), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8). When `with_min_version` is omitted, `build` picks the smallest version that fits.
 
 ## Render as SVG for the browser
 
