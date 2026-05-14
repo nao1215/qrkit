@@ -327,7 +327,7 @@ pub fn raw_byte_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
 
 ## Errors
 
-Every public entry point returns `Result(_, qrkit.EncodeError)`. The variants are:
+Every public entry point returns `Result(_, qrkit.EncodeError)`. The variants live in `qrkit/error` and are:
 
 - `EmptyInput` — empty `data`.
 - `InvalidVersion(requested)` — version outside the symbol family.
@@ -337,7 +337,7 @@ Every public entry point returns `Result(_, qrkit.EncodeError)`. The variants ar
 
 ```gleam
 import qrkit
-import qrkit/types
+import qrkit/error
 
 pub fn rejected() -> Bool {
   case qrkit.encode("") {
@@ -346,6 +346,8 @@ pub fn rejected() -> Bool {
   }
 }
 ```
+
+`qrkit` re-exports `EncodeError` as a type alias for `error.EncodeError`, so the type name is reachable through either module. Because Gleam type aliases do not re-export their constructors, the variants themselves have to be pattern-matched via `qrkit/error` (or destructured by labelled field). The same rule applies to `ErrorCorrection` / `Symbol` / `ModePreference`, whose constructors live in `qrkit/types`.
 
 ## Targets
 

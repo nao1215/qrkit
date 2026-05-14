@@ -10,18 +10,28 @@ import qrkit/internal/structured_append
 import qrkit/internal/util
 import qrkit/types
 
+/// Type alias for [`qrkit/types.ErrorCorrection`](./qrkit/types.html#ErrorCorrection).
+/// To pattern-match on `Low | Medium | Quartile | High`, `import qrkit/types`.
 pub type ErrorCorrection =
   types.ErrorCorrection
 
+/// Type alias for [`qrkit/types.Mode`](./qrkit/types.html#Mode).
+/// To pattern-match on `Numeric | Alphanumeric | Byte | Kanji`, `import qrkit/types`.
 pub type Mode =
   types.Mode
 
+/// Type alias for [`qrkit/types.ModePreference`](./qrkit/types.html#ModePreference).
+/// To pattern-match on `Auto | ForceByte`, `import qrkit/types`.
 pub type ModePreference =
   types.ModePreference
 
+/// Type alias for [`qrkit/types.Symbol`](./qrkit/types.html#Symbol).
+/// To pattern-match on `Standard | Micro | Rectangular`, `import qrkit/types`.
 pub type Symbol =
   types.Symbol
 
+/// Type alias for [`qrkit/error.EncodeError`](./qrkit/error.html#EncodeError).
+/// To pattern-match on `EmptyInput | InvalidVersion(..) | DataExceedsCapacity(..) | UnsupportedCharacter(..) | IncompatibleOptions(..)`, `import qrkit/error`.
 pub type EncodeError =
   error.EncodeError
 
