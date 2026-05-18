@@ -212,6 +212,11 @@ pub fn readme_content_helpers_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 fn readme_meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
+  // The RFC-required PRODID / UID / DTSTAMP properties added in
+  // qrkit content #14 grow the payload past what default-ECC
+  // encoding leaves room for at small versions, so the README
+  // example now constructs the builder with a Low ECC for the
+  // illustrative encode.
   content.event(
     title: "Sync",
     start_unix: 1_778_752_800,
@@ -220,7 +225,9 @@ fn readme_meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
   |> content.with_location("Online")
   |> content.with_description("Project sync meeting")
   |> content.event_to_string
-  |> qrkit.encode
+  |> qrkit.new
+  |> qrkit.with_ecc(types.Low)
+  |> qrkit.build
 }
 
 pub fn readme_meeting_qr_test() -> Nil {
@@ -229,6 +236,8 @@ pub fn readme_meeting_qr_test() -> Nil {
 }
 
 pub fn readme_meeting_qr_payload_matches_documented_times_test() -> Nil {
+  // Payload now CRLF-terminated and carries the RFC-required
+  // PRODID / UID / DTSTAMP properties (qrkit content #12, #14).
   content.event(
     title: "Sync",
     start_unix: 1_778_752_800,
@@ -238,7 +247,7 @@ pub fn readme_meeting_qr_payload_matches_documented_times_test() -> Nil {
   |> content.with_description("Project sync meeting")
   |> content.event_to_string
   |> should.equal(
-    "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:Sync\nDTSTART:20260514T100000Z\nDTEND:20260514T110000Z\nLOCATION:Online\nDESCRIPTION:Project sync meeting\nEND:VEVENT\nEND:VCALENDAR",
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:2592443-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Online\r\nDESCRIPTION:Project sync meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
   )
 }
 

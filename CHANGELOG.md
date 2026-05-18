@@ -8,6 +8,20 @@ All notable changes to this project will be documented in this file.
 
 - `qrkit/render/ascii`: `AsciiOptions` opaque type plus `default_options/0`, `with_margin/2`, `with_inverse_option/2`, `to_string_with/2`, and `to_string_compact_with/2` — mirroring the builder-style options shape `qrkit/render/svg` already exposes (`svg.default_options |> svg.with_margin(2)`). The new functions let terminal callers tighten the quiet zone for debug dumps, fixture diffs, and inline-doc panels without giving up the ISO/IEC 18004 4-module default for camera-scannable output. Existing `to_string/1`, `with_inverse/1`, and `to_string_compact/1` keep the 4-module default and are unchanged at the API level. (#8)
 
+### Fixed
+
+- `qrkit/content`: comprehensive RFC compliance pass for the iCalendar and vCard renderers (issues #9–#17).
+  - `vcard_to_string` and `event_to_string` now terminate lines with CRLF (`\r\n`) per RFC 5545 §3.1 / RFC 2426 §2.1, not LF-only — strict consumers (Apple iOS Calendar in MIME contexts, Outlook drag-and-drop, `python-icalendar`, `node-vcard`) accept the output. (#12)
+  - Both renderers fold long content lines at 75 octets with `CRLF<space>` continuation per RFC 5545 §3.1 / RFC 2426 §2.6. Folding is grapheme-aware so multi-byte UTF-8 sequences are never split. (#13)
+  - `escape_ical` / `escape_vcard` strip raw `\r` and `NUL` from TEXT values (RFC 5545 §3.3.11 / RFC 2426 §2.4.2 forbid raw control characters; CR in particular emulated CRLF and broke the document). (#11)
+  - `event_to_string` now emits the RFC-required `PRODID` (VCALENDAR §3.7.3), `UID`, and `DTSTAMP` (VEVENT §3.6.1). `UID` is a deterministic synthesis of the event's title hash + start + end so the same event produces the same UID across runs; `DTSTAMP` defaults to `start_unix` since no clock is available in a pure rendering function. (#14)
+  - `vcard_to_string` always emits the RFC 2426 MANDATORY `N` and `FN` properties (§3.1.1 / §3.1.2) — when the caller did not call `with_name`, both are emitted with empty values (`N:;;;;` and `FN:`) so the structure is still spec-conformant. (#15)
+  - `event_to_string` in `all_day` mode now bumps `DTEND` to `start + 1 day` when the caller passed `end_unix == start_unix`, matching RFC 5545 §3.6.1's non-inclusive-end requirement for DATE-valued events. (#16)
+  - `event_to_string` handles pre-epoch `unix` values correctly by floor-dividing into days / seconds-of-day (Gleam's `/` and `%` truncate toward zero, which had let negative sub-day components leak into the formatted output). (#9)
+  - `event_to_string` clamps year to `[1, 9999]` so values beyond Y10K cannot break the RFC 5545 fixed-width `YYYYMMDDTHHMMSSZ` format. (#10)
+  - Final BEGIN/END boundary line is now terminated with CRLF (RFC 5545 §3.1 / RFC 2426 §2.1 require *every* content line — including the last — to end with CRLF).
+  - `content.email` now percent-encodes the `to` addr-spec along with `subject` and `body`, so reserved characters (`?`, `&`, `#`, space) in `to` no longer produce a malformed `mailto:` URI. (#17)
+
 ## [0.1.0] - 2026-05-14
 
 ### Changed

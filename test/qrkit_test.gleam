@@ -122,25 +122,51 @@ pub fn mixed_content_falls_back_to_byte_mode_test() -> Nil {
 }
 
 pub fn vcard_content_helper_test() -> Nil {
+  // RFC 2426 §2.1: CRLF line terminator. The renderer also always
+  // emits N and FN (mandatory per §3.1.1 / §3.1.2).
   content.vcard()
   |> content.with_name("Nao")
   |> content.with_phone("+81-90-0000-0000")
   |> content.with_email("nao@example.com")
   |> content.vcard_to_string()
   |> should.equal(
-    "BEGIN:VCARD\nVERSION:3.0\nN:Nao\nFN:Nao\nTEL:+81-90-0000-0000\nEMAIL:nao@example.com\nEND:VCARD",
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\r\nFN:Nao\r\nTEL:+81-90-0000-0000\r\nEMAIL:nao@example.com\r\nEND:VCARD\r\n",
+  )
+}
+
+// Issue #15: vcard_to_string always emits the RFC 2426 MANDATORY N
+// and FN properties even when the caller did not set a name.
+pub fn vcard_emits_required_n_and_fn_when_name_missing_test() -> Nil {
+  content.vcard()
+  |> content.vcard_to_string()
+  |> should.equal(
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nEND:VCARD\r\n",
   )
 }
 
 pub fn email_content_percent_encodes_reserved_chars_test() -> Nil {
+  // Issue #17: the `to` parameter is now percent-encoded too — the
+  // `@` becomes `%40`, but the renderer round-trips cleanly when
+  // the addr-spec contains reserved characters (`?`, `&`, `#`,
+  // space).
   content.email(
     to: "you@example.com",
     subject: "status & next?",
     body: "100% ready = yes\nship it",
   )
   |> should.equal(
-    "mailto:you@example.com?subject=status%20%26%20next%3F&body=100%25%20ready%20%3D%20yes%0Aship%20it",
+    "mailto:you%40example.com?subject=status%20%26%20next%3F&body=100%25%20ready%20%3D%20yes%0Aship%20it",
   )
+}
+
+// Issue #17: every URI-reserved character in `to` is now escaped.
+pub fn email_to_with_reserved_chars_is_escaped_test() -> Nil {
+  content.email(to: "a?b@c.com", subject: "S", body: "B")
+  |> should.equal("mailto:a%3Fb%40c.com?subject=S&body=B")
+  content.email(to: "a&b@c.com", subject: "S", body: "B")
+  |> should.equal("mailto:a%26b%40c.com?subject=S&body=B")
+  content.email(to: "a#b@c.com", subject: "S", body: "B")
+  |> should.equal("mailto:a%23b%40c.com?subject=S&body=B")
 }
 
 pub fn vcard_escapes_reserved_chars_test() -> Nil {
@@ -149,11 +175,33 @@ pub fn vcard_escapes_reserved_chars_test() -> Nil {
   |> content.with_address("Tokyo;JP,\nLine2")
   |> content.vcard_to_string()
   |> should.equal(
-    "BEGIN:VCARD\nVERSION:3.0\nN:Nao\\;Inc\\,\\nDev\nFN:Nao\\;Inc\\,\\nDev\nADR:Tokyo\\;JP\\,\\nLine2\nEND:VCARD",
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\\;Inc\\,\\nDev\r\nFN:Nao\\;Inc\\,\\nDev\r\nADR:Tokyo\\;JP\\,\\nLine2\r\nEND:VCARD\r\n",
+  )
+}
+
+// Issue #11: escape helpers strip raw CR and NUL from TEXT values
+// (RFC 5545 §3.3.11 / RFC 2426 §2.4.2 forbid them; CR in particular
+// breaks line termination by emulating CRLF inside a value).
+pub fn vcard_escape_strips_raw_cr_and_nul_test() -> Nil {
+  content.vcard()
+  |> content.with_name("A\rB")
+  |> content.vcard_to_string()
+  |> should.equal(
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n",
+  )
+  content.vcard()
+  |> content.with_name("A\u{0000}B")
+  |> content.vcard_to_string()
+  |> should.equal(
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n",
   )
 }
 
 pub fn calendar_event_escapes_text_fields_test() -> Nil {
+  // RFC 5545 §3.1: CRLF terminator. §3.7.3 + §3.6.1: PRODID, UID,
+  // DTSTAMP are required (#14). UID is a deterministic synthesis of
+  // (title-hash, start, end); DTSTAMP defaults to start_unix
+  // (no clock is available in a pure renderer).
   content.event(
     title: "Sync;One,Two",
     start_unix: 1_778_752_800,
@@ -163,8 +211,82 @@ pub fn calendar_event_escapes_text_fields_test() -> Nil {
   |> content.with_description("Line1\nLine2;done,ok")
   |> content.event_to_string()
   |> should.equal(
-    "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nSUMMARY:Sync\\;One\\,Two\nDTSTART:20260514T100000Z\nDTEND:20260514T110000Z\nLOCATION:Room\\;A\\,\\nTokyo\nDESCRIPTION:Line1\\nLine2\\;done\\,ok\nEND:VEVENT\nEND:VCALENDAR",
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:1868597102-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\\;One\\,Two\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Room\\;A\\,\\nTokyo\r\nDESCRIPTION:Line1\\nLine2\\;done\\,ok\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
   )
+}
+
+// Issue #14: event_to_string emits PRODID + UID + DTSTAMP.
+pub fn calendar_event_includes_required_properties_test() -> Nil {
+  let s =
+    content.event(title: "X", start_unix: 0, end_unix: 0)
+    |> content.event_to_string
+  s
+  |> string.contains("PRODID:")
+  |> should.be_true
+  s
+  |> string.contains("UID:")
+  |> should.be_true
+  s
+  |> string.contains("DTSTAMP:")
+  |> should.be_true
+}
+
+// Issue #16: in all_day mode, DTEND is bumped to start + 1 day when
+// the caller passed end == start. RFC 5545 §3.6.1 mandates a
+// non-inclusive end for DATE-valued events.
+pub fn calendar_event_all_day_dtend_non_inclusive_test() -> Nil {
+  let s =
+    content.event(title: "x", start_unix: 0, end_unix: 0)
+    |> content.with_all_day(True)
+    |> content.event_to_string
+  s
+  |> string.contains("DTSTART;VALUE=DATE:19700101")
+  |> should.be_true
+  s
+  |> string.contains("DTEND;VALUE=DATE:19700102")
+  |> should.be_true
+}
+
+// Issue #9: negative unix is floor-divided so sub-day components do
+// not go negative.
+pub fn calendar_event_negative_unix_formats_correctly_test() -> Nil {
+  let s =
+    content.event(title: "x", start_unix: -1, end_unix: -1)
+    |> content.event_to_string
+  // -1 second past epoch = 1969-12-31 23:59:59 UTC.
+  s
+  |> string.contains("DTSTART:19691231T235959Z")
+  |> should.be_true
+}
+
+// Issue #10: years beyond Y10K are clamped to 9999 to keep the
+// RFC 5545 fixed-width YYYYMMDDTHHMMSSZ format. Pre-Y1 years are
+// clamped to 1.
+pub fn calendar_event_year_clamps_to_4_digit_range_test() -> Nil {
+  // 253_402_300_800 unix = Jan 1, 10000 UTC -> clamped to year 9999.
+  let s_y10k =
+    content.event(
+      title: "x",
+      start_unix: 253_402_300_800,
+      end_unix: 253_402_300_800,
+    )
+    |> content.event_to_string
+  s_y10k
+  |> string.contains("DTSTART:9999")
+  |> should.be_true
+  // -62_167_219_200 unix is roughly Jan 1, 0000 UTC — earlier than
+  // year 1, so the renderer clamps to year 0001 rather than emitting
+  // a 0-prefixed year that breaks the RFC 5545 fixed-width format.
+  let s_pre_y1 =
+    content.event(
+      title: "x",
+      start_unix: -62_167_219_200,
+      end_unix: -62_167_219_200,
+    )
+    |> content.event_to_string
+  s_pre_y1
+  |> string.contains("DTSTART:0001")
+  |> should.be_true
 }
 
 pub fn ascii_renderer_test() -> Nil {
