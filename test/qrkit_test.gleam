@@ -130,7 +130,7 @@ pub fn vcard_content_helper_test() -> Nil {
   |> content.with_email("nao@example.com")
   |> content.vcard_to_string()
   |> should.equal(
-    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\r\nFN:Nao\r\nTEL:+81-90-0000-0000\r\nEMAIL:nao@example.com\r\nEND:VCARD",
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\r\nFN:Nao\r\nTEL:+81-90-0000-0000\r\nEMAIL:nao@example.com\r\nEND:VCARD\r\n",
   )
 }
 
@@ -139,7 +139,7 @@ pub fn vcard_content_helper_test() -> Nil {
 pub fn vcard_emits_required_n_and_fn_when_name_missing_test() -> Nil {
   content.vcard()
   |> content.vcard_to_string()
-  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nEND:VCARD")
+  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nEND:VCARD\r\n")
 }
 
 pub fn email_content_percent_encodes_reserved_chars_test() -> Nil {
@@ -173,7 +173,7 @@ pub fn vcard_escapes_reserved_chars_test() -> Nil {
   |> content.with_address("Tokyo;JP,\nLine2")
   |> content.vcard_to_string()
   |> should.equal(
-    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\\;Inc\\,\\nDev\r\nFN:Nao\\;Inc\\,\\nDev\r\nADR:Tokyo\\;JP\\,\\nLine2\r\nEND:VCARD",
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\\;Inc\\,\\nDev\r\nFN:Nao\\;Inc\\,\\nDev\r\nADR:Tokyo\\;JP\\,\\nLine2\r\nEND:VCARD\r\n",
   )
 }
 
@@ -184,11 +184,11 @@ pub fn vcard_escape_strips_raw_cr_and_nul_test() -> Nil {
   content.vcard()
   |> content.with_name("A\rB")
   |> content.vcard_to_string()
-  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD")
+  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n")
   content.vcard()
   |> content.with_name("A\u{0000}B")
   |> content.vcard_to_string()
-  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD")
+  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n")
 }
 
 pub fn calendar_event_escapes_text_fields_test() -> Nil {
@@ -205,7 +205,7 @@ pub fn calendar_event_escapes_text_fields_test() -> Nil {
   |> content.with_description("Line1\nLine2;done,ok")
   |> content.event_to_string()
   |> should.equal(
-    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:1868597102-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\\;One\\,Two\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Room\\;A\\,\\nTokyo\r\nDESCRIPTION:Line1\\nLine2\\;done\\,ok\r\nEND:VEVENT\r\nEND:VCALENDAR",
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:1868597102-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\\;One\\,Two\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Room\\;A\\,\\nTokyo\r\nDESCRIPTION:Line1\\nLine2\\;done\\,ok\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
   )
 }
 
@@ -267,6 +267,19 @@ pub fn calendar_event_year_clamps_to_4_digit_range_test() -> Nil {
     |> content.event_to_string
   s_y10k
   |> string.contains("DTSTART:9999")
+  |> should.be_true
+  // -62_167_219_200 unix is roughly Jan 1, 0000 UTC — earlier than
+  // year 1, so the renderer clamps to year 0001 rather than emitting
+  // a 0-prefixed year that breaks the RFC 5545 fixed-width format.
+  let s_pre_y1 =
+    content.event(
+      title: "x",
+      start_unix: -62_167_219_200,
+      end_unix: -62_167_219_200,
+    )
+    |> content.event_to_string
+  s_pre_y1
+  |> string.contains("DTSTART:0001")
   |> should.be_true
 }
 

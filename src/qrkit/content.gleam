@@ -158,6 +158,7 @@ pub fn vcard_to_string(card: VCard) -> String {
   |> present_lines([])
   |> list.map(fold_line)
   |> string.join(with: "\r\n")
+  |> append_crlf
 }
 
 /// Build a `mailto:` payload, percent-encoding every parameter
@@ -273,6 +274,15 @@ pub fn event_to_string(event: CalendarEvent) -> String {
   |> present_lines([])
   |> list.map(fold_line)
   |> string.join(with: "\r\n")
+  |> append_crlf
+}
+
+fn append_crlf(s: String) -> String {
+  // RFC 5545 §3.1 / RFC 2426 §2.1: every content line — including
+  // the final BEGIN/END boundary — is terminated by CRLF. Without
+  // this, the trailing END:VCALENDAR / END:VCARD line has no
+  // terminator and strict consumers reject the document.
+  s <> "\r\n"
 }
 
 fn adjust_end_for_all_day(start_unix: Int, end_unix: Int, all_day: Bool) -> Int {

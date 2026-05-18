@@ -247,7 +247,7 @@ pub fn readme_meeting_qr_payload_matches_documented_times_test() -> Nil {
   |> content.with_description("Project sync meeting")
   |> content.event_to_string
   |> should.equal(
-    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:2592443-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Online\r\nDESCRIPTION:Project sync meeting\r\nEND:VEVENT\r\nEND:VCALENDAR",
+    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:2592443-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Online\r\nDESCRIPTION:Project sync meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
   )
 }
 
