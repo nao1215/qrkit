@@ -174,6 +174,58 @@ pub fn ascii_renderer_test() -> Nil {
   |> should.be_false
 }
 
+// Issue #8: ascii renderer exposes a builder-style options object
+// for non-spec-mandated rendering (smaller margin in debug dumps,
+// fixture diffs, README terminal panels). The default 4-module
+// quiet zone matches ISO/IEC 18004 and the existing to_string output.
+pub fn ascii_with_margin_zero_strips_quiet_zone_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let tight =
+    ascii.default_options()
+    |> ascii.with_margin(0)
+    |> ascii.to_string_with(qr, _)
+  // With no quiet zone every line starts with a dark cell (the
+  // finder pattern's top-left corner) — the default output has a
+  // 4-module margin of light cells in front.
+  string.starts_with(tight, "██")
+  |> should.be_true
+}
+
+pub fn ascii_with_margin_matches_default_at_4_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let default = ascii.to_string(qr)
+  let rebuilt =
+    ascii.default_options()
+    |> ascii.with_margin(4)
+    |> ascii.to_string_with(qr, _)
+  default
+  |> should.equal(rebuilt)
+}
+
+pub fn ascii_with_inverse_option_flips_glyphs_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let inverted_via_options =
+    ascii.default_options()
+    |> ascii.with_inverse_option(True)
+    |> ascii.to_string_with(qr, _)
+  inverted_via_options
+  |> should.equal(ascii.with_inverse(qr))
+}
+
+pub fn ascii_with_margin_negative_clamps_to_zero_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let zeroed =
+    ascii.default_options()
+    |> ascii.with_margin(0)
+    |> ascii.to_string_with(qr, _)
+  let negative =
+    ascii.default_options()
+    |> ascii.with_margin(-1)
+    |> ascii.to_string_with(qr, _)
+  zeroed
+  |> should.equal(negative)
+}
+
 pub fn svg_renderer_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
   let xml = svg.to_string(qr, svg.default_options())
