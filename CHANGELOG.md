@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.2.0] - 2026-05-18
+
 ### Added
 
 - `qrkit/render/ascii`: `AsciiOptions` opaque type plus `default_options/0`, `with_margin/2`, `with_inverse_option/2`, `to_string_with/2`, and `to_string_compact_with/2` — mirroring the builder-style options shape `qrkit/render/svg` already exposes (`svg.default_options |> svg.with_margin(2)`). The new functions let terminal callers tighten the quiet zone for debug dumps, fixture diffs, and inline-doc panels without giving up the ISO/IEC 18004 4-module default for camera-scannable output. Existing `to_string/1`, `with_inverse/1`, and `to_string_compact/1` keep the 4-module default and are unchanged at the API level. (#8)
