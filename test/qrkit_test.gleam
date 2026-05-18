@@ -139,7 +139,9 @@ pub fn vcard_content_helper_test() -> Nil {
 pub fn vcard_emits_required_n_and_fn_when_name_missing_test() -> Nil {
   content.vcard()
   |> content.vcard_to_string()
-  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nEND:VCARD\r\n")
+  |> should.equal(
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nEND:VCARD\r\n",
+  )
 }
 
 pub fn email_content_percent_encodes_reserved_chars_test() -> Nil {
@@ -184,11 +186,15 @@ pub fn vcard_escape_strips_raw_cr_and_nul_test() -> Nil {
   content.vcard()
   |> content.with_name("A\rB")
   |> content.vcard_to_string()
-  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n")
+  |> should.equal(
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n",
+  )
   content.vcard()
   |> content.with_name("A\u{0000}B")
   |> content.vcard_to_string()
-  |> should.equal("BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n")
+  |> should.equal(
+    "BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n",
+  )
 }
 
 pub fn calendar_event_escapes_text_fields_test() -> Nil {
