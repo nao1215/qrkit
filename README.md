@@ -12,7 +12,7 @@ Covers Standard QR (versions 1–40, ECC L/M/Q/H), Micro QR (M1–M4), rMQR (ISO
 
 The QR below points to the project's GitHub Sponsors page. Try scanning it with your phone — every example in this README was used to render it.
 
-![Sponsor nao1215](docs/images/sponsor-qr.png)
+![Sponsor nao1215](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/sponsor-qr.png)
 
 ```sh
 gleam add qrkit
