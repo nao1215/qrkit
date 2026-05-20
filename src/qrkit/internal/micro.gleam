@@ -306,7 +306,7 @@ fn do_find_version(
   candidate: Int,
 ) -> Result(Int, EncodeError) {
   case candidate > max_version {
-    True -> Error(DataExceedsCapacity(0, 0))
+    True -> Error(no_version_fits_error(text, selected_mode, ecc))
     False -> {
       case mode_supported(selected_mode, candidate) {
         False -> do_find_version(text, selected_mode, ecc, candidate + 1)
@@ -328,6 +328,27 @@ fn do_find_version(
       }
     }
   }
+}
+
+/// Build a `DataExceedsCapacity` error for the bailout case where no Micro QR
+/// version in `min_version..=max_version` accepts the payload at `ecc`. The
+/// fields point at the M4 ceiling (every Micro QR mode is supported at M4) so
+/// the caller can see how far over the Micro-QR ceiling the input is — see
+/// #22 for why `(0, 0)` was useless.
+fn no_version_fits_error(
+  text: String,
+  selected_mode: Mode,
+  ecc: ErrorCorrection,
+) -> EncodeError {
+  let bits_needed = case encoded_bits(text, selected_mode, max_version) {
+    Ok(value) -> value
+    Error(_) -> mode.data_bits_length(text, selected_mode)
+  }
+  let bits_available = case data_capacity_bits(max_version, ecc) {
+    Ok(value) -> value
+    Error(_) -> 0
+  }
+  DataExceedsCapacity(bits_needed, bits_available)
 }
 
 fn encoded_bits(
