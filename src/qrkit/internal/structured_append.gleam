@@ -15,6 +15,7 @@ import qrkit/error.{
 import qrkit/internal/bitstream
 import qrkit/internal/standard
 import qrkit/internal/util
+import qrkit/internal/version
 import qrkit/types.{type ErrorCorrection, Auto}
 
 /// Upper bound on the number of shards allowed by ISO/IEC 18004 §8.2.
@@ -58,7 +59,7 @@ fn find_split(
   total: Int,
 ) -> Result(List(standard.Encoded), EncodeError) {
   case total > max_symbols {
-    True -> Error(DataExceedsCapacity(bits_needed: 0, bits_available: 0))
+    True -> Error(no_split_fits_error(data, max_version, ecc))
     False -> {
       let chunks = split_string(data, total)
       case encode_shards(chunks, data, total, max_version, ecc) {
@@ -67,6 +68,31 @@ fn find_split(
       }
     }
   }
+}
+
+/// 20 bits of Structured Append header (4-bit mode + 4-bit position + 4-bit
+/// `total-1` + 8-bit parity, ISO/IEC 18004 §8.2) consumed per shard.
+const structured_append_header_bits: Int = 20
+
+/// Build a `DataExceedsCapacity` error for the bailout case where even 16
+/// shards at `max_version` cannot hold `data`. `bits_available` is the total
+/// capacity of 16 `max_version` symbols at `ecc`, minus the Structured Append
+/// header each shard must carry; `bits_needed` is the worst-case Byte-mode
+/// encoding of the payload (UTF-8 byte count × 8) since we don't know which
+/// mode each shard would have picked. See #22 for why `(0, 0)` was useless.
+fn no_split_fits_error(
+  data: String,
+  max_version: Int,
+  ecc: ErrorCorrection,
+) -> EncodeError {
+  let bits_per_symbol = case version.data_capacity_bits(max_version, ecc) {
+    Ok(value) -> value
+    Error(_) -> 0
+  }
+  let payload_bits = bit_array.byte_size(bit_array.from_string(data)) * 8
+  let bits_available =
+    max_symbols * { bits_per_symbol - structured_append_header_bits }
+  DataExceedsCapacity(payload_bits, bits_available)
 }
 
 fn encode_shards(

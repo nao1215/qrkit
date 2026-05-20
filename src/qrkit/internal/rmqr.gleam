@@ -254,7 +254,7 @@ fn find_version(
   candidate: Int,
 ) -> Result(Int, EncodeError) {
   case candidate >= total_versions {
-    True -> Error(DataExceedsCapacity(0, 0))
+    True -> Error(no_version_fits_error(text, selected_mode, ecc))
     False -> {
       let count_bits = lookup_cci(selected_mode, candidate)
       let data_bits =
@@ -266,6 +266,22 @@ fn find_version(
       }
     }
   }
+}
+
+/// Build a `DataExceedsCapacity` error for the bailout case where no rMQR
+/// version (R7×43..R17×139) accepts the payload at `ecc`. We report the
+/// R17×139 (largest) ceiling so the caller can see how far over the rMQR
+/// limit the input is — see #22 for why `(0, 0)` was useless.
+fn no_version_fits_error(
+  text: String,
+  selected_mode: Mode,
+  ecc: ErrorCorrection,
+) -> EncodeError {
+  let largest = total_versions - 1
+  let count_bits = lookup_cci(selected_mode, largest)
+  let bits_needed = 3 + count_bits + mode.data_bits_length(text, selected_mode)
+  let bits_available = data_capacity_bits(largest, ecc)
+  DataExceedsCapacity(bits_needed, bits_available)
 }
 
 fn data_capacity_bits(index: Int, ecc: ErrorCorrection) -> Int {
