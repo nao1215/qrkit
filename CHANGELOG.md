@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.3.0] - 2026-05-21
+
 ### Fixed
 
 - README: the Sponsor QR image now uses an absolute `raw.githubusercontent.com` URL instead of the relative `docs/images/sponsor-qr.png` path so it renders both on GitHub and on the Hex package page (relative paths in the README cannot be resolved against the published package archive, which omits the `docs/images/` directory). (#23)
