@@ -145,28 +145,72 @@ pub fn vcard_emits_required_n_and_fn_when_name_missing_test() -> Nil {
 }
 
 pub fn email_content_percent_encodes_reserved_chars_test() -> Nil {
-  // Issue #17: the `to` parameter is now percent-encoded too — the
-  // `@` becomes `%40`, but the renderer round-trips cleanly when
-  // the addr-spec contains reserved characters (`?`, `&`, `#`,
-  // space).
+  // Issue #21: the `to` addr-spec keeps `@` literal per RFC 6068 §2.
+  // Subject / body keep the wider RFC 3986 percent-encoding the
+  // stdlib provides so `?` / `&` / `#` / space / `%` are still
+  // escaped in those hfvalues.
   content.email(
     to: "you@example.com",
     subject: "status & next?",
     body: "100% ready = yes\nship it",
   )
   |> should.equal(
-    "mailto:you%40example.com?subject=status%20%26%20next%3F&body=100%25%20ready%20%3D%20yes%0Aship%20it",
+    "mailto:you@example.com?subject=status%20%26%20next%3F&body=100%25%20ready%20%3D%20yes%0Aship%20it",
   )
 }
 
-// Issue #17: every URI-reserved character in `to` is now escaped.
+// Issue #21: URI-structural characters that would actually break
+// parsing in the addr-spec position (`?`, `&`, `#`) are still
+// encoded; `@` is kept literal because it is the addr-spec
+// separator per RFC 6068 §2.
 pub fn email_to_with_reserved_chars_is_escaped_test() -> Nil {
   content.email(to: "a?b@c.com", subject: "S", body: "B")
-  |> should.equal("mailto:a%3Fb%40c.com?subject=S&body=B")
+  |> should.equal("mailto:a%3Fb@c.com?subject=S&body=B")
   content.email(to: "a&b@c.com", subject: "S", body: "B")
-  |> should.equal("mailto:a%26b%40c.com?subject=S&body=B")
+  |> should.equal("mailto:a%26b@c.com?subject=S&body=B")
   content.email(to: "a#b@c.com", subject: "S", body: "B")
-  |> should.equal("mailto:a%23b%40c.com?subject=S&body=B")
+  |> should.equal("mailto:a%23b@c.com?subject=S&body=B")
+}
+
+// Issue #21: the addr-spec `@` separator must remain literal per
+// RFC 6068 §2 — over-encoding it to `%40` broke canonical-form
+// matching in some QR-handler whitelists.
+pub fn email_to_keeps_at_literal_test() -> Nil {
+  content.email(
+    to: "user+tag@example.com",
+    subject: "Q & A",
+    body: "Hi#fragment",
+  )
+  |> should.equal(
+    "mailto:user+tag@example.com?subject=Q%20%26%20A&body=Hi%23fragment",
+  )
+}
+
+// Issue #21: `+` is in RFC 6068 §2 some-delims so it stays literal
+// in the addr-spec (sub-addressing tags like `user+tag` must survive
+// the round-trip).
+pub fn email_to_keeps_plus_literal_test() -> Nil {
+  content.email(to: "user+tag@example.com", subject: "", body: "")
+  |> should.equal("mailto:user+tag@example.com?subject=&body=")
+}
+
+// Issue #21: `,` separates multiple addr-specs in the `to` list per
+// RFC 6068 §2, so it must stay literal — encoding it would merge two
+// recipients into a single malformed local-part.
+pub fn email_to_comma_recipient_separator_test() -> Nil {
+  content.email(to: "a@x.com,b@y.com", subject: "S", body: "B")
+  |> should.equal("mailto:a@x.com,b@y.com?subject=S&body=B")
+}
+
+// Issue #21 regression guard: subject / body are hfvalues (not
+// addr-specs) so the wider RFC 3986 percent-encoding still applies
+// to `?` / `&` / `#` / space / `%` — only the `to` encoder was
+// narrowed.
+pub fn email_subject_body_still_encoded_test() -> Nil {
+  content.email(to: "u@e.com", subject: "a?b&c#d e", body: "x?y&z#w v")
+  |> should.equal(
+    "mailto:u@e.com?subject=a%3Fb%26c%23d%20e&body=x%3Fy%26z%23w%20v",
+  )
 }
 
 pub fn vcard_escapes_reserved_chars_test() -> Nil {
