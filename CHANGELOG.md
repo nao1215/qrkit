@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- `qrkit/content.email` now keeps the addr-spec `@` separator (and the RFC 6068 §2 `some-delims` set: `!`, `$`, `'`, `(`, `)`, `*`, `+`, `;`, `:`, `,`) literal in the `to` field instead of percent-encoding everything via `uri.percent_encode`. The `to` field gets a narrower encoder that only escapes characters that would actually break URI parsing in this position (space, `?`, `&`, `#`, `<`, `>`, control bytes, non-ASCII); `subject` / `body` keep the wider RFC 3986 encoding. The previous behaviour produced `mailto:user%40example.com?...`, breaking canonical-form matching in some Android QR-handler whitelists. (#21)
+
 ## [0.2.0] - 2026-05-18
 
 ### Added

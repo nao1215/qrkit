@@ -161,15 +161,24 @@ pub fn vcard_to_string(card: VCard) -> String {
   |> append_crlf
 }
 
-/// Build a `mailto:` payload, percent-encoding every parameter
-/// including the `to` addr-spec.
+/// Build a `mailto:` payload conformant to RFC 6068.
+///
+/// The `to` field is encoded as an `addr-spec` (RFC 6068 §2): the
+/// structural separators `@` and `,` are kept literal, as are the
+/// `some-delims` characters (`!`, `$`, `'`, `(`, `)`, `*`, `+`,
+/// `;`, `:`) — only characters that would actually break URI parsing
+/// in this position (space, `?`, `&`, `#`, `<`, `>`, control bytes,
+/// non-ASCII) are percent-encoded. The `subject` and `body` hfvalues
+/// keep the wider RFC 3986 percent-encoding the stdlib provides so
+/// `?` / `&` / `#` / space / `%` are still escaped in those fields.
+/// (#21)
 pub fn email(
   to to: String,
   subject subject: String,
   body body: String,
 ) -> String {
   "mailto:"
-  <> percent_encode(to)
+  <> encode_addr_spec(to)
   <> "?subject="
   <> percent_encode(subject)
   <> "&body="
@@ -371,6 +380,128 @@ fn present_lines(lines: List(Option(String)), acc: List(String)) -> List(String)
 
 fn percent_encode(value: String) -> String {
   uri.percent_encode(value)
+}
+
+fn encode_addr_spec(value: String) -> String {
+  // RFC 6068 §2 addr-spec encoder for the `to` field of a `mailto:`
+  // URI. The `@` separator between local-part and domain, the `,`
+  // separator between addr-specs, and the `some-delims` set
+  // (`!` / `$` / `'` / `(` / `)` / `*` / `+` / `;` / `:`) are kept
+  // literal; only characters that would actually break URI parsing
+  // in this position — space, `?`, `&`, `#`, `<`, `>`, control bytes,
+  // and any non-ASCII codepoint — are percent-encoded. Encoding goes
+  // codepoint-by-codepoint so the same output is produced on both the
+  // Erlang and JavaScript targets, and so multi-byte UTF-8 sequences
+  // are expanded to one `%XX` per UTF-8 byte (RFC 3986 §2.5).
+  value
+  |> string.to_utf_codepoints
+  |> list.map(encode_addr_spec_codepoint)
+  |> string.concat
+}
+
+fn encode_addr_spec_codepoint(codepoint: UtfCodepoint) -> String {
+  let cp = string.utf_codepoint_to_int(codepoint)
+  case cp < 128 && is_addr_spec_literal_ascii(cp) {
+    True -> codepoint_to_string(codepoint)
+    False -> percent_encode_codepoint_utf8(cp)
+  }
+}
+
+fn codepoint_to_string(codepoint: UtfCodepoint) -> String {
+  string.from_utf_codepoints([codepoint])
+}
+
+fn is_addr_spec_literal_ascii(cp: Int) -> Bool {
+  // ALPHA / DIGIT / unreserved (`-` `.` `_` `~`) plus the structural
+  // separators of RFC 6068 §2 addr-spec list (`@`, `,`) and the
+  // some-delims set (`!`, `$`, `'`, `(`, `)`, `*`, `+`, `;`, `:`)
+  // stay literal. Everything else — including space, `?`, `&`, `#`,
+  // `<`, `>`, `"`, `[`, `]`, `\`, `/`, `=`, and any control byte —
+  // is percent-encoded.
+  is_alpha(cp)
+  || is_digit(cp)
+  || is_unreserved_punct(cp)
+  || is_addr_spec_separator(cp)
+  || is_some_delim(cp)
+}
+
+fn is_alpha(cp: Int) -> Bool {
+  { cp >= 0x41 && cp <= 0x5A } || { cp >= 0x61 && cp <= 0x7A }
+}
+
+fn is_digit(cp: Int) -> Bool {
+  cp >= 0x30 && cp <= 0x39
+}
+
+fn is_unreserved_punct(cp: Int) -> Bool {
+  // RFC 3986 §2.3 unreserved punctuation: `-` `.` `_` `~`.
+  cp == 0x2D || cp == 0x2E || cp == 0x5F || cp == 0x7E
+}
+
+fn is_addr_spec_separator(cp: Int) -> Bool {
+  // RFC 6068 §2: `@` separates local-part from domain, `,` separates
+  // addr-specs in a list.
+  cp == 0x40 || cp == 0x2C
+}
+
+fn is_some_delim(cp: Int) -> Bool {
+  // RFC 6068 §2 some-delims = "!" / "$" / "'" / "(" / ")" / "*" /
+  // "+" / ";" / ":". (`,` and `@` are handled by
+  // `is_addr_spec_separator` above so this set is the rest.)
+  cp == 0x21
+  || cp == 0x24
+  || cp == 0x27
+  || cp == 0x28
+  || cp == 0x29
+  || cp == 0x2A
+  || cp == 0x2B
+  || cp == 0x3B
+  || cp == 0x3A
+}
+
+fn percent_encode_codepoint_utf8(cp: Int) -> String {
+  // Expand the codepoint to its UTF-8 bytes (RFC 3629) and emit
+  // `%XX` for each. ASCII (`cp < 0x80`) falls through the 1-byte
+  // branch so the same routine handles both ASCII characters that
+  // need escaping (e.g. space → `%20`) and non-ASCII codepoints.
+  case cp < 0x80, cp < 0x800, cp < 0x10000 {
+    True, _, _ -> to_hex_byte(cp)
+    _, True, _ -> to_hex_byte(0xC0 + cp / 64) <> to_hex_byte(0x80 + cp % 64)
+    _, _, True ->
+      to_hex_byte(0xE0 + cp / 4096)
+      <> to_hex_byte(0x80 + cp / 64 % 64)
+      <> to_hex_byte(0x80 + cp % 64)
+    _, _, _ ->
+      to_hex_byte(0xF0 + cp / 262_144)
+      <> to_hex_byte(0x80 + cp / 4096 % 64)
+      <> to_hex_byte(0x80 + cp / 64 % 64)
+      <> to_hex_byte(0x80 + cp % 64)
+  }
+}
+
+fn to_hex_byte(byte: Int) -> String {
+  "%" <> hex_digit(byte / 16) <> hex_digit(byte % 16)
+}
+
+fn hex_digit(nibble: Int) -> String {
+  case nibble {
+    0 -> "0"
+    1 -> "1"
+    2 -> "2"
+    3 -> "3"
+    4 -> "4"
+    5 -> "5"
+    6 -> "6"
+    7 -> "7"
+    8 -> "8"
+    9 -> "9"
+    10 -> "A"
+    11 -> "B"
+    12 -> "C"
+    13 -> "D"
+    14 -> "E"
+    _ -> "F"
+  }
 }
 
 fn escape_vcard(value: String) -> String {
