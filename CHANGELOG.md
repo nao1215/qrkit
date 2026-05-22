@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `qrkit/render/png` now exposes the same options-builder shape as `qrkit/render/svg` and `qrkit/render/ascii`: `default_options()`, `with_module_size`, `with_margin`, `with_dark_color`, `with_light_color`, `with_background`, and `to_bit_array_with(qr, options)`. The existing `to_bit_array(qr, scale:, margin:)` is preserved as a thin wrapper over the new path. Colour fields accept `#rgb`, `#rrggbb`, and `#rrggbbaa` strings (the alpha component is read but currently honoured only via the `with_background(False)` toggle, which marks the light palette entry transparent through a `tRNS` chunk); unparseable strings keep the previous value rather than failing the call, mirroring the SVG renderer's lenient parsing. Closes the parity gap left by #8. (#28)
+
 ## [0.3.0] - 2026-05-21
 
 ### Fixed
