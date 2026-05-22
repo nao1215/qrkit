@@ -3,6 +3,7 @@
 import gleam/bit_array
 import gleam/int
 import gleam/list
+import gleam/string
 import qrkit
 
 const png_signature = [137, 80, 78, 71, 13, 10, 26, 10]
@@ -11,16 +12,79 @@ const crc32_polynomial = 0xEDB88320
 
 const adler32_modulus = 65_521
 
-/// Render a QR code as PNG bytes.
+/// Rendering options for [`to_bit_array_with`](#to_bit_array_with).
 ///
-/// `scale` values less than 1 are normalised to 1, and negative `margin`
-/// values are normalised to 0.
-pub fn to_bit_array(
-  qr: qrkit.QrCode,
-  scale scale: Int,
-  margin margin: Int,
-) -> BitArray {
-  let actual_scale = positive_or(scale, default: 1)
+/// Mirrors the shape of `qrkit/render/svg`'s `SvgOptions`. The
+/// colour fields accept CSS-style hex strings (`#rgb`, `#rrggbb`, or
+/// `#rrggbbaa`); unparseable values fall back to the default colour
+/// rather than rejecting the call, so callers can keep the surface
+/// non-fallible.
+pub opaque type PngOptions {
+  PngOptions(
+    module_size: Int,
+    margin: Int,
+    dark_color: String,
+    light_color: String,
+    background: Bool,
+  )
+}
+
+/// Default PNG rendering options: 8×8 px modules, 4-module quiet
+/// zone, black on white, background on. Mirrors
+/// [`qrkit/render/svg`](./svg.html)'s defaults.
+pub fn default_options() -> PngOptions {
+  PngOptions(8, 4, "#000000", "#ffffff", True)
+}
+
+/// Set the PNG module size in pixels.
+///
+/// Values less than 1 are normalised to 1 to keep the rendered
+/// output usable.
+pub fn with_module_size(options: PngOptions, px: Int) -> PngOptions {
+  PngOptions(..options, module_size: positive_or(px, default: 1))
+}
+
+/// Set the quiet-zone margin in modules.
+///
+/// Negative values are normalised to 0.
+pub fn with_margin(options: PngOptions, modules: Int) -> PngOptions {
+  PngOptions(..options, margin: non_negative_or(modules, default: 0))
+}
+
+/// Set the dark module colour. Accepts `#rgb`, `#rrggbb`, or
+/// `#rrggbbaa` — same syntax as the SVG renderer. Unparseable
+/// strings keep the previous value rather than failing the call.
+pub fn with_dark_color(options: PngOptions, css_color: String) -> PngOptions {
+  PngOptions(..options, dark_color: css_color)
+}
+
+/// Set the light / background colour. Accepts the same hex syntax as
+/// [`with_dark_color`](#with_dark_color).
+pub fn with_light_color(options: PngOptions, css_color: String) -> PngOptions {
+  PngOptions(..options, light_color: css_color)
+}
+
+/// Toggle whether the light/background pixels are drawn opaquely.
+///
+/// When `False`, the light palette entry is marked transparent via a
+/// `tRNS` chunk so the QR code can be composited over an existing
+/// background.
+pub fn with_background(options: PngOptions, draw: Bool) -> PngOptions {
+  PngOptions(..options, background: draw)
+}
+
+/// Render a QR code as PNG bytes using the options builder.
+///
+/// Equivalent to [`to_bit_array`](#to_bit_array) when called with
+/// [`default_options`](#default_options) overridden only by
+/// [`with_module_size`](#with_module_size) and
+/// [`with_margin`](#with_margin); the colour and background knobs
+/// add the surface not previously reachable through the positional
+/// entry point.
+pub fn to_bit_array_with(qr: qrkit.QrCode, options: PngOptions) -> BitArray {
+  let PngOptions(module_size, margin, dark_color, light_color, background) =
+    options
+  let actual_scale = positive_or(module_size, default: 1)
   let actual_margin = non_negative_or(margin, default: 0)
   let pixels =
     qrkit.rows(qr)
@@ -34,8 +98,20 @@ pub fn to_bit_array(
       u32_bytes(width),
       list.append(u32_bytes(height), [1, 3, 0, 0, 0]),
     )
-  let plte = [0, 0, 0, 255, 255, 255]
+  let #(dr, dg, db) = parse_css_rgb(dark_color, default: #(0, 0, 0))
+  let #(lr, lg, lb) = parse_css_rgb(light_color, default: #(255, 255, 255))
+  let plte = [dr, dg, db, lr, lg, lb]
   let idat = zlib_store(image_data)
+  // tRNS chunk: palette alpha. Index 0 (dark) stays opaque at 255;
+  // index 1 (light) is made transparent when background == False.
+  let trns_data = case background {
+    True -> []
+    False -> [255, 0]
+  }
+  let trns_chunk = case trns_data {
+    [] -> []
+    bytes -> chunk(type_bytes: [116, 82, 78, 83], data_bytes: bytes)
+  }
 
   list.append(
     png_signature,
@@ -44,13 +120,77 @@ pub fn to_bit_array(
       list.append(
         chunk(type_bytes: [80, 76, 84, 69], data_bytes: plte),
         list.append(
-          chunk(type_bytes: [73, 68, 65, 84], data_bytes: idat),
-          chunk(type_bytes: [73, 69, 78, 68], data_bytes: []),
+          trns_chunk,
+          list.append(
+            chunk(type_bytes: [73, 68, 65, 84], data_bytes: idat),
+            chunk(type_bytes: [73, 69, 78, 68], data_bytes: []),
+          ),
         ),
       ),
     ),
   )
   |> byte_list_to_bit_array
+}
+
+/// Render a QR code as PNG bytes.
+///
+/// `scale` values less than 1 are normalised to 1, and negative `margin`
+/// values are normalised to 0. Thin wrapper around
+/// [`to_bit_array_with`](#to_bit_array_with) using the default
+/// black-on-white palette.
+pub fn to_bit_array(
+  qr: qrkit.QrCode,
+  scale scale: Int,
+  margin margin: Int,
+) -> BitArray {
+  to_bit_array_with(
+    qr,
+    default_options()
+      |> with_module_size(scale)
+      |> with_margin(margin),
+  )
+}
+
+fn parse_css_rgb(
+  css: String,
+  default default: #(Int, Int, Int),
+) -> #(Int, Int, Int) {
+  case string.starts_with(css, "#") {
+    False -> default
+    True -> {
+      let hex = string.drop_start(css, 1)
+      case string.length(hex) {
+        3 -> parse_short_hex(hex, default)
+        6 -> parse_long_hex(hex, default)
+        8 -> parse_long_hex(string.slice(hex, 0, 6), default)
+        _ -> default
+      }
+    }
+  }
+}
+
+fn parse_short_hex(hex: String, default: #(Int, Int, Int)) -> #(Int, Int, Int) {
+  let r = string.slice(hex, 0, 1)
+  let g = string.slice(hex, 1, 1)
+  let b = string.slice(hex, 2, 1)
+  case parse_hex_byte(r <> r), parse_hex_byte(g <> g), parse_hex_byte(b <> b) {
+    Ok(rv), Ok(gv), Ok(bv) -> #(rv, gv, bv)
+    _, _, _ -> default
+  }
+}
+
+fn parse_long_hex(hex: String, default: #(Int, Int, Int)) -> #(Int, Int, Int) {
+  let r = string.slice(hex, 0, 2)
+  let g = string.slice(hex, 2, 2)
+  let b = string.slice(hex, 4, 2)
+  case parse_hex_byte(r), parse_hex_byte(g), parse_hex_byte(b) {
+    Ok(rv), Ok(gv), Ok(bv) -> #(rv, gv, bv)
+    _, _, _ -> default
+  }
+}
+
+fn parse_hex_byte(s: String) -> Result(Int, Nil) {
+  int.base_parse(s, 16)
 }
 
 fn pad_rows(rows: List(List(Bool)), margin: Int) -> List(List(Bool)) {
