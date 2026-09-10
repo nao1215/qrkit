@@ -294,7 +294,11 @@ fn append_crlf(s: String) -> String {
   s <> "\r\n"
 }
 
-fn adjust_end_for_all_day(start_unix: Int, end_unix: Int, all_day: Bool) -> Int {
+fn adjust_end_for_all_day(
+  start_unix: Int,
+  end_unix: Int,
+  all_day: Bool,
+) -> Int {
   case all_day && end_unix <= start_unix {
     True -> start_unix + 86_400
     False -> end_unix
@@ -370,7 +374,10 @@ fn option_line_with(
   }
 }
 
-fn present_lines(lines: List(Option(String)), acc: List(String)) -> List(String) {
+fn present_lines(
+  lines: List(Option(String)),
+  acc: List(String),
+) -> List(String) {
   case lines {
     [] -> list.reverse(acc)
     [Some(line), ..rest] -> present_lines(rest, [line, ..acc])

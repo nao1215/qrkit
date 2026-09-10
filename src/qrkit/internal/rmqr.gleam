@@ -471,7 +471,10 @@ fn draw_top_right_corner(target: matrix.Matrix, h_size: Int) -> matrix.Matrix {
   |> matrix.set(1, h_size - 1, True, reserved: True)
 }
 
-fn draw_bottom_left_corner(target: matrix.Matrix, v_size: Int) -> matrix.Matrix {
+fn draw_bottom_left_corner(
+  target: matrix.Matrix,
+  v_size: Int,
+) -> matrix.Matrix {
   target
   |> matrix.set(v_size - 2, 0, True, reserved: True)
   |> matrix.set(v_size - 2, 1, False, reserved: True)
