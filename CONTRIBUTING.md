@@ -4,7 +4,7 @@
 
 You need the following tools installed:
 
-- [Gleam](https://gleam.run/) 1.15+
+- [Gleam](https://gleam.run/) 1.14+ (`.mise.toml` pins the version CI uses for formatting)
 - Erlang/OTP 28+
 - Node.js 22+ for JavaScript-target builds and tests
 - [just](https://github.com/casey/just) as a task runner
