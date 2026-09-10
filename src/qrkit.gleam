@@ -65,7 +65,7 @@ pub opaque type QrCode {
 
 /// The package version.
 pub fn package_version() -> String {
-  "0.4.0"
+  "0.5.0"
 }
 
 /// Create a new builder from input text.
