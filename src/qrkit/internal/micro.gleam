@@ -928,7 +928,10 @@ fn format_bits(version: Int, ecc: ErrorCorrection, mask: Int) -> Int {
   }
 }
 
-fn symbol_number(version: Int, ecc: ErrorCorrection) -> Result(Int, EncodeError) {
+fn symbol_number(
+  version: Int,
+  ecc: ErrorCorrection,
+) -> Result(Int, EncodeError) {
   case version, ecc {
     1, Low -> Ok(0)
     2, Low -> Ok(1)

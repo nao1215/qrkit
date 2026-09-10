@@ -60,7 +60,10 @@ pub fn ec_total_codewords(
   lookup_by_ecc(ec_codewords_table, version, ecc)
 }
 
-pub fn ec_blocks(version: Int, ecc: ErrorCorrection) -> Result(Int, EncodeError) {
+pub fn ec_blocks(
+  version: Int,
+  ecc: ErrorCorrection,
+) -> Result(Int, EncodeError) {
   lookup_by_ecc(ec_blocks_table, version, ecc)
 }
 

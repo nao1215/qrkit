@@ -47,7 +47,10 @@ pub fn with_margin(options: AsciiOptions, modules: Int) -> AsciiOptions {
 
 /// Toggle inverted rendering (dark cells render as spaces, light
 /// cells as blocks).
-pub fn with_inverse_option(options: AsciiOptions, inverse: Bool) -> AsciiOptions {
+pub fn with_inverse_option(
+  options: AsciiOptions,
+  inverse: Bool,
+) -> AsciiOptions {
   let AsciiOptions(margin, _) = options
   AsciiOptions(margin: margin, inverse: inverse)
 }
@@ -93,7 +96,10 @@ pub fn to_string_compact(qr: qrkit.QrCode) -> String {
 /// [`AsciiOptions`](#AsciiOptions) is currently ignored for the
 /// half-block renderer — the compact form's glyph set already
 /// encodes both top and bottom modules per character cell.
-pub fn to_string_compact_with(qr: qrkit.QrCode, options: AsciiOptions) -> String {
+pub fn to_string_compact_with(
+  qr: qrkit.QrCode,
+  options: AsciiOptions,
+) -> String {
   let AsciiOptions(margin, _inverse) = options
   let padded = pad_rows(qrkit.rows(qr), margin)
   compact_lines(padded, [])

@@ -1,5 +1,12 @@
 name: CI
 
+# Two compiler lanes:
+# - floor (`floor`): the `gleam` requirement in gleam.toml (keep both in sync) on the
+#   oldest maintained OTP and Node 22. It proves the declared minimum still builds
+#   and passes the tests on both targets.
+# - latest (`check`, `build-and-test`): floats on 1.x with OTP 29 so new compiler
+#   warnings, deprecations and formatter changes surface here first.
+
 on:
   push:
     branches: [main]
@@ -14,12 +21,12 @@ jobs:
     name: Format / Lint / Type check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v4
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "28"
-          gleam-version: "1.15.2"
+          otp-version: "29"
+          gleam-version: "1.x"
       - name: Download dependencies
         run: just deps
       - name: Format check
@@ -29,6 +36,25 @@ jobs:
       - name: Lint
         run: just lint
 
+  floor:
+    name: Test (Gleam 1.14.0, OTP 27, Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.14.0"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Download dependencies
+        run: gleam deps download
+      - name: Test (Erlang)
+        run: gleam test --target erlang
+      - name: Test (JavaScript)
+        run: gleam test --target javascript
+
   build-and-test:
     name: Build and test (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -37,17 +63,17 @@ jobs:
       matrix:
         target: [erlang, javascript]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v4
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "28"
-          gleam-version: "1.15.2"
+          otp-version: "29"
+          gleam-version: "1.x"
       - name: Set up Node.js
         if: matrix.target == 'javascript'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "lts/*"
       - name: Download dependencies
         run: just deps
       - name: Build

@@ -111,7 +111,9 @@ fn greedy_segments(
     [char, ..rest] -> {
       let next_mode = classify_char(char)
       case current {
-        Some(#(current_mode, current_text, start)) if current_mode == next_mode ->
+        Some(#(current_mode, current_text, start))
+          if current_mode == next_mode
+        ->
           greedy_segments(
             rest,
             index + 1,

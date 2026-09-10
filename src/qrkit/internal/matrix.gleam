@@ -90,7 +90,12 @@ fn build_rows(
   }
 }
 
-fn build_row(matrix: Matrix, row: Int, col: Int, acc: List(Bool)) -> List(Bool) {
+fn build_row(
+  matrix: Matrix,
+  row: Int,
+  col: Int,
+  acc: List(Bool),
+) -> List(Bool) {
   case col >= width(matrix) {
     True -> list.reverse(acc)
     False -> build_row(matrix, row, col + 1, [get(matrix, row, col), ..acc])

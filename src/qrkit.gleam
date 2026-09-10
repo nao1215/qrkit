@@ -342,7 +342,11 @@ pub fn mask(qr: QrCode) -> Int {
 ///
 /// Returns `Error(ModuleOutOfBounds(..))` when `x` or `y` fall outside the
 /// matrix dimensions.
-pub fn module_at(qr: QrCode, x: Int, y: Int) -> Result(Bool, MatrixAccessError) {
+pub fn module_at(
+  qr: QrCode,
+  x: Int,
+  y: Int,
+) -> Result(Bool, MatrixAccessError) {
   case rows(qr) |> util.at(y) {
     Ok(row) ->
       case util.at(row, x) {
