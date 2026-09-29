@@ -26,6 +26,84 @@ pub fn encode(data: List(Int), degree: Int) -> List(Int) {
   list.append(padding, remainder)
 }
 
+/// Split `data` into `blocks` error-correction blocks, add each block's
+/// error-correction codewords, and interleave the result for placement.
+///
+/// ISO/IEC 18004 and ISO/IEC 23941 use the same block layout: every block
+/// has the same number of error-correction codewords, and when the data does
+/// not divide evenly the last `total_codewords % blocks` blocks carry one
+/// extra data codeword. Data codewords are interleaved column by column
+/// (shorter blocks are skipped once exhausted), followed by the
+/// error-correction codewords in the same order.
+pub fn encode_interleaved(
+  data: List(Int),
+  total_codewords total_codewords: Int,
+  blocks blocks: Int,
+) -> List(Int) {
+  let data_codewords = list.length(data)
+  let blocks_in_group2 = total_codewords % blocks
+  let blocks_in_group1 = blocks - blocks_in_group2
+  let data_codewords_in_group1 = data_codewords / blocks
+  let ec_count = total_codewords / blocks - data_codewords_in_group1
+  let data_blocks =
+    split_into_blocks(
+      data,
+      blocks_in_group1,
+      data_codewords_in_group1,
+      blocks_in_group2,
+      data_codewords_in_group1 + 1,
+      [],
+    )
+  let ec_blocks = list.map(data_blocks, fn(block) { encode(block, ec_count) })
+  list.append(interleave_lists(data_blocks), interleave_lists(ec_blocks))
+}
+
+fn split_into_blocks(
+  bytes: List(Int),
+  group1_count: Int,
+  group1_size: Int,
+  group2_count: Int,
+  group2_size: Int,
+  acc: List(List(Int)),
+) -> List(List(Int)) {
+  case group1_count > 0, group2_count > 0 {
+    True, _ -> {
+      let #(head, tail) = list.split(bytes, group1_size)
+      split_into_blocks(
+        tail,
+        group1_count - 1,
+        group1_size,
+        group2_count,
+        group2_size,
+        [head, ..acc],
+      )
+    }
+    False, True -> {
+      let #(head, tail) = list.split(bytes, group2_size)
+      split_into_blocks(
+        tail,
+        group1_count,
+        group1_size,
+        group2_count - 1,
+        group2_size,
+        [head, ..acc],
+      )
+    }
+    False, False -> list.reverse(acc)
+  }
+}
+
+fn interleave_lists(blocks: List(List(Int))) -> List(Int) {
+  let width =
+    list.fold(blocks, 0, fn(widest, block) {
+      int.max(widest, list.length(block))
+    })
+  util.range(0, width - 1)
+  |> list.flat_map(fn(index) {
+    list.filter_map(blocks, fn(block) { util.at(block, index) })
+  })
+}
+
 /// Multiply two field elements in GF(2^8) with primitive polynomial `0x11D`.
 pub fn gf_multiply(a: Int, b: Int) -> Int {
   gf_multiply_loop(a, b, 0)

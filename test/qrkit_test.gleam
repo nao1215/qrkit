@@ -1201,6 +1201,86 @@ pub fn png_renderer_normalizes_invalid_scale_and_margin_test() -> Nil {
   |> should.equal(normalized)
 }
 
+pub fn mixed_payload_switches_to_numeric_for_a_digit_run_test() -> Nil {
+  // 35 bytes of URL followed by 29 digits: one Byte segment needs version 4
+  // at Medium, while Byte + Numeric for the digit run fits version 3.
+  let assert Ok(qr) =
+    qrkit.encode("https://example.com/item?id=12345678901234567890123456789")
+  qrkit.version(qr) |> should.equal(3)
+}
+
+pub fn payload_that_fits_version_10_or_later_is_not_rejected_test() -> Nil {
+  // Mixed digit and letter runs were segmented and measured with the
+  // character-count widths of versions 1-9 and then encoded at version 10+,
+  // where every segment header is wider, so payloads that fit were rejected
+  // with DataExceedsCapacity.
+  let assert Ok(qr) =
+    qrkit.new(string.repeat("abc123456", 30))
+    |> qrkit.with_ecc(types.Low)
+    |> qrkit.build
+  qrkit.version(qr) |> should.equal(10)
+
+  let assert Ok(qr) =
+    qrkit.new(string.repeat("id=1234567;", 25))
+    |> qrkit.with_ecc(types.Low)
+    |> qrkit.build
+  qrkit.version(qr) |> should.equal(11)
+}
+
+pub fn micro_qr_encodes_kana_in_kanji_mode_test() -> Nil {
+  // Kanji mode costs 13 bits per character against 24 for UTF-8 Byte, so
+  // four katakana fit M3 at Medium and M4 at Quartile.
+  let assert Ok(medium) =
+    qrkit.new("カタカナ")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_ecc(types.Medium)
+    |> qrkit.build
+  qrkit.version(medium) |> should.equal(3)
+
+  let assert Ok(quartile) =
+    qrkit.new("カタカナ")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_ecc(types.Quartile)
+    |> qrkit.build
+  qrkit.version(quartile) |> should.equal(4)
+}
+
+pub fn rmqr_encodes_kana_in_kanji_mode_test() -> Nil {
+  let assert Ok(qr) =
+    qrkit.new("こんにちは")
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.build
+  // R7x59: five characters in Kanji mode need 3 + 3 + 65 = 71 bits.
+  qrkit.symbol_size(qr) |> should.equal(#(59, 7))
+}
+
+pub fn micro_qr_mixes_numeric_and_kanji_segments_test() -> Nil {
+  // "59" in Numeric plus three kana in Kanji mode fits M3 at Low and M4 at
+  // Quartile; one Byte segment for all five characters needs 96 bits and
+  // does not fit M4 at Quartile (80 bits).
+  let assert Ok(low) =
+    qrkit.new("59けあお")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_ecc(types.Low)
+    |> qrkit.build
+  qrkit.version(low) |> should.equal(3)
+
+  let assert Ok(quartile) =
+    qrkit.new("59けあお")
+    |> qrkit.with_symbol(types.Micro)
+    |> qrkit.with_ecc(types.Quartile)
+    |> qrkit.build
+  qrkit.version(quartile) |> should.equal(4)
+}
+
+pub fn rmqr_mixes_kanji_and_alphanumeric_segments_test() -> Nil {
+  let assert Ok(qr) =
+    qrkit.new("品番ABC-12345 数量10")
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.build
+  qrkit.symbol_size(qr) |> should.equal(#(77, 7))
+}
+
 fn rows_to_strings(rows: List(List(Bool))) -> List(String) {
   rows
   |> list.map(fn(row) {

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- rMQR symbols whose error correction ISO/IEC 23941 Table 8 splits into several Reed-Solomon blocks were encoded with a single block over all data codewords, so readers could not decode them: 35 of the 64 version and level pairs (R7x139-H, R9x139-M, R17x139-M and every larger or H-level size with more than one block). Each block now gets its own error correction and the blocks are interleaved as the standard requires. Checked against zxing-cpp and shogo82148/qrcode.
+- Standard QR rejected payloads that fit version 10 or later with `DataExceedsCapacity`, for example `string.repeat("abc123456", 30)` at Low, which fits version 10. Segment headers were counted with the character-count widths of versions 1-9 and then encoded with the wider ones of the chosen version. Each version range (1-9, 10-26, 27-40) is now segmented and measured with its own widths.
+- Micro QR and rMQR never used Kanji mode, so kana cost 24 bits per character in Byte mode instead of 13; `"カタカナ"` now fits Micro QR M3 at Medium instead of M4, and fits M4 at Quartile instead of being rejected.
+
+### Changed
+
+- Kanji mode covers all 6,879 characters of JIS X 0208 instead of kana, full-width alphanumerics and four punctuation marks, so a kanji takes 13 bits instead of 24 in Byte mode. The table is generated from the WHATWG jis0208 index by `scripts/gen_kanji_table.py`.
+- Standard QR, Micro QR and rMQR split the payload into the Numeric, Alphanumeric, Byte and Kanji segments with the fewest bits (ISO/IEC 18004 Annex J) instead of a greedy split for Standard QR and a single mode for Micro QR and rMQR. A symbol is never larger than before, and mixed payloads such as a URL ending in a long number often fit a smaller version. The modules of a symbol can differ from earlier releases for the same input.
+
 ## [0.5.0] - 2026-09-10
 
 ### Changed
