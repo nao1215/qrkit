@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.6.0] - 2026-09-29
+
 ### Added
 
 - `qrkit/decode` reads Standard QR, Micro QR and rMQR symbols from rows of modules (`decode.from_rows(qrkit.rows(qr))`), with Reed-Solomon error correction (Berlekamp-Massey, Chien search, Forney). It removes a light quiet zone, reads rotated and mirrored symbols, and parses Numeric, Alphanumeric, Byte, Kanji, ECI, Structured Append and FNC1. Byte data follows its ECI; without one it is read as UTF-8, Shift JIS or ISO-8859-1 by zxing's rules. `decode.text`, `symbol`, `version`, `error_correction`, `mask`, `errors_corrected`, `eci` and `structured_append` report what was read; failures are `qrkit/error.DecodeError` (`NotASymbol`, `UnreadableFormatInformation`, `TooManyErrors`, `MalformedData`).
