@@ -10,6 +10,7 @@ import qrkit/error.{
   type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
 import qrkit/internal/bitstream
+import qrkit/internal/format_info
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
@@ -339,7 +340,8 @@ fn mode_supported(selected_mode: Mode, version: Int) -> Bool {
   }
 }
 
-fn mode_indicator_bits(version: Int) -> Int {
+/// Width of the mode indicator at `version` (M1 has none).
+pub fn mode_indicator_bits(version: Int) -> Int {
   version - 1
 }
 
@@ -352,7 +354,8 @@ fn mode_indicator_value(selected_mode: Mode) -> Int {
   }
 }
 
-fn char_count_bits_for_mode(
+/// Width of the character count indicator of `selected_mode` at `version`.
+pub fn char_count_bits_for_mode(
   selected_mode: Mode,
   version: Int,
 ) -> Result(Int, EncodeError) {
@@ -446,7 +449,27 @@ fn pad_to_capacity(
     Ok(value) -> value
     Error(_) -> 0
   }
-  pad_alternating(aligned, data_bytes_count, 0)
+  case has_half_codeword(version, ecc) {
+    // The final data codeword of M1, M3-L and M3-M holds only 4 bits, and
+    // ISO/IEC 18004 7.4.10 pads it with 0000: alternate pad codewords fill
+    // the full codewords, then the half codeword stays zero. A full 0xEC
+    // there would leave 1100 in the error correction input that the symbol
+    // never carries, so every such symbol started with one codeword error.
+    True ->
+      pad_alternating(aligned, data_bytes_count - 1, 0)
+      |> pad_zero(data_bytes_count)
+    False -> pad_alternating(aligned, data_bytes_count, 0)
+  }
+}
+
+fn pad_zero(
+  stream: bitstream.BitStream,
+  target_bytes: Int,
+) -> bitstream.BitStream {
+  case list.length(bitstream.to_byte_list(stream)) >= target_bytes {
+    True -> stream
+    False -> pad_zero(bitstream.append_byte(stream, 0), target_bytes)
+  }
 }
 
 fn pad_alternating(
@@ -495,12 +518,75 @@ fn compute_ec(
   }
 }
 
-fn has_half_codeword(version: Int, ecc: ErrorCorrection) -> Bool {
+/// M1, M3-L and M3-M end their data with a 4-bit codeword.
+pub fn has_half_codeword(version: Int, ecc: ErrorCorrection) -> Bool {
   case version, ecc {
     1, Low -> True
     3, Low -> True
     3, Medium -> True
     _, _ -> False
+  }
+}
+
+/// The `(row, col)` of every data module of M`version`, in placement order.
+pub fn data_module_positions(version: Int) -> List(#(Int, Int)) {
+  case symbol_size(version) {
+    Ok(size) -> data_positions(function_patterns(size), size - 1, size - 1)
+    Error(_) -> []
+  }
+}
+
+fn function_patterns(size: Int) -> matrix.Matrix {
+  matrix.new(size, size)
+  |> draw_finder(size)
+  |> draw_timing(size)
+  |> reserve_format_info(size)
+}
+
+/// The 15-bit format information of a symbol given as `module(row, col)`,
+/// in the bit order `place_format_info` writes.
+pub fn read_format(module: fn(Int, Int) -> Bool) -> Int {
+  let horizontal =
+    util.range(0, 7)
+    |> list.fold(0, fn(acc, index) {
+      acc + bool_value(module(8, index + 1)) * power_of_two(14 - index)
+    })
+  util.range(0, 6)
+  |> list.fold(horizontal, fn(acc, index) {
+    acc + bool_value(module(7 - index, 8)) * power_of_two(6 - index)
+  })
+}
+
+/// The version, error correction level and mask whose format information is
+/// within 3 bits of `bits`.
+pub fn decode_format(bits: Int) -> Result(#(Int, ErrorCorrection, Int), Nil) {
+  let symbols = [
+    #(1, Low),
+    #(2, Low),
+    #(2, Medium),
+    #(3, Low),
+    #(3, Medium),
+    #(4, Low),
+    #(4, Medium),
+    #(4, Quartile),
+  ]
+  let candidates =
+    list.index_map(symbols, fn(symbol, number) {
+      list.map([0, 1, 2, 3], fn(mask) {
+        #(
+          #(symbol.0, symbol.1, mask),
+          util.at_or(format_info_table, number * 4 + mask, default: -1),
+        )
+      })
+    })
+    |> list.flatten
+  format_info.nearest(candidates, [bits], 3)
+}
+
+fn bool_value(value: Bool) -> Int {
+  case value {
+    True -> 1
+    False -> 0
   }
 }
 
@@ -512,12 +598,8 @@ fn build_matrix(
   case symbol_size(chosen_version) {
     Error(error) -> Error(error)
     Ok(size) -> {
-      let base =
-        matrix.new(size, size)
-        |> draw_finder(size)
-        |> draw_timing(size)
-        |> reserve_format_info(size)
-      let with_data = place_codewords(base, codewords, chosen_version, ecc)
+      let with_data =
+        place_codewords(function_patterns(size), codewords, chosen_version, ecc)
       let #(best_mask, masked) =
         choose_best_mask(with_data, chosen_version, ecc, size)
       Ok(#(best_mask, place_format_info(masked, chosen_version, ecc, best_mask)))
@@ -784,7 +866,7 @@ fn do_apply_mask(
             True -> do_apply_mask(target, mask, row, col + 1)
             False ->
               do_apply_mask(
-                matrix.xor(target, row, col, micro_mask_at(mask, row, col)),
+                matrix.xor(target, row, col, mask_at(mask, row, col)),
                 mask,
                 row,
                 col + 1,
@@ -794,7 +876,8 @@ fn do_apply_mask(
   }
 }
 
-fn micro_mask_at(mask: Int, row: Int, col: Int) -> Bool {
+/// Micro QR data mask `mask` (0..3) at `(row, col)`.
+pub fn mask_at(mask: Int, row: Int, col: Int) -> Bool {
   case mask {
     0 -> row % 2 == 0
     1 -> { row / 2 + col / 3 } % 2 == 0

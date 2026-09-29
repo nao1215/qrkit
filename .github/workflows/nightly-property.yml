@@ -1,0 +1,92 @@
+name: nightly-property
+
+# Every night:
+#
+# - property: the property tests (metamon) run 100 times their usual count,
+#   the Gleam counterpart of the nightly fuzzing the Go repositories run: ten
+#   passes of the suite, each with METAMON_RUNS_MULTIPLIER=10. A single pass
+#   at 100x would hit eunit's 5-second limit per test; ten passes stay under
+#   it, and each draws a new random seed. A failure report prints its seed,
+#   so the case can be reproduced with metamon.with_seed and kept as a
+#   regression test.
+# - interop: differential testing against independent implementations.
+#   zxing-cpp must read random symbols qrkit writes, and qrkit/decode must
+#   read random symbols segno writes the way zxing-cpp reads them. A failure
+#   prints the input text.
+#
+# Pull requests keep the normal count and skip interop so they stay fast.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  property:
+    name: property tests x10, ten passes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
+
+      - name: Download dependencies
+        run: gleam deps download
+
+      - name: Property tests, ten passes at 10 times the runs
+        env:
+          METAMON_RUNS_MULTIPLIER: "10"
+        run: |
+          set -e
+          for pass in 1 2 3 4 5 6 7 8 9 10; do
+            echo "::group::pass $pass"
+            gleam test
+            echo "::endgroup::"
+          done
+
+  interop:
+    name: interop with zxing-cpp and segno
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install zxing-cpp and segno (hash-pinned)
+        run: python -m pip install --require-hashes --no-deps -r scripts/interop-requirements.txt
+
+      - name: Download dependencies
+        run: gleam deps download
+
+      - name: zxing-cpp reads symbols qrkit writes
+        run: |
+          set -e
+          gleam run -m gen/interop_corpus
+          python scripts/interop.py zxing build/interop/qrkit.tsv
+
+      - name: qrkit/decode reads symbols segno writes
+        run: |
+          set -e
+          python scripts/interop.py segno build/interop/segno.tsv 2000
+          gleam run -m gen/interop_decode

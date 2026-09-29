@@ -394,7 +394,7 @@ pub fn ascii_with_margin_negative_clamps_to_zero_test() -> Nil {
 
 pub fn svg_renderer_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let xml = svg.to_string(qr, svg.default_options())
+  let xml = svg.to_string(qr)
   string.starts_with(xml, "<svg")
   |> should.equal(True)
 
@@ -666,21 +666,60 @@ fn result_is_data_too_long(result: Result(a, error.EncodeError)) -> Bool {
   }
 }
 
-pub fn rmqr_r7x43_default_test() -> Nil {
+pub fn rmqr_default_picks_the_smallest_area_test() -> Nil {
+  // "01234567" fits R7x43 (301 modules) and R11x27 (297 modules); the
+  // default picks the smaller area.
   let assert Ok(qr) =
     qrkit.new("01234567")
     |> qrkit.with_symbol(types.Rectangular)
     |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
-  qrkit.width(qr)
-  |> should.equal(43)
-  qrkit.height(qr)
-  |> should.equal(7)
+  qrkit.symbol_size(qr)
+  |> should.equal(#(27, 11))
   qrkit.symbol(qr)
   |> should.equal(types.Rectangular)
   must_module_at(qr, 0, 0)
   |> should.equal(True)
+}
+
+pub fn rmqr_shortest_height_priority_test() -> Nil {
+  let assert Ok(qr) =
+    qrkit.new("01234567")
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_ecc(types.Medium)
+    |> qrkit.with_rectangular_priority(types.ShortestHeight)
+    |> qrkit.build()
+  qrkit.symbol_size(qr) |> should.equal(#(43, 7))
+}
+
+pub fn rmqr_priorities_pick_different_shapes_test() -> Nil {
+  // 100 digits need 344 bits at M: the smallest area that holds them is
+  // R11x77 (847 modules, exactly 344 bits), the lowest is R7x139 and the
+  // narrowest is R15x59.
+  let payload = string.repeat("0123456789", 10)
+  let build = fn(priority) {
+    let assert Ok(qr) =
+      qrkit.new(payload)
+      |> qrkit.with_symbol(types.Rectangular)
+      |> qrkit.with_rectangular_priority(priority)
+      |> qrkit.build()
+    qrkit.symbol_size(qr)
+  }
+  build(types.SmallestArea) |> should.equal(#(77, 11))
+  build(types.ShortestHeight) |> should.equal(#(139, 7))
+  build(types.NarrowestWidth) |> should.equal(#(59, 15))
+}
+
+pub fn rectangular_priority_rejects_other_symbols_test() -> Nil {
+  qrkit.new("HELLO")
+  |> qrkit.with_rectangular_priority(types.ShortestHeight)
+  |> qrkit.build()
+  |> should.equal(
+    Error(error.IncompatibleOptions(
+      "rectangular priority is only supported for rMQR",
+    )),
+  )
 }
 
 pub fn rmqr_rejects_low_ecc_test() -> Nil {
@@ -1150,7 +1189,7 @@ pub fn svg_dark_color_escaped_test() -> Nil {
     svg.default_options()
     |> svg.with_dark_color("\" onclick=\"alert(1)")
     |> svg.with_light_color("</svg><script>evil()</script>")
-  let document = svg.to_string(qr, injected)
+  let document = svg.to_string_with(qr, injected)
 
   // Raw injected payload markers must not appear verbatim.
   string.contains(does: document, contain: "onclick=\"alert")
@@ -1171,7 +1210,7 @@ pub fn svg_dimension_options_normalize_invalid_values_test() -> Nil {
     svg.default_options()
     |> svg.with_module_size(0)
     |> svg.with_margin(-3)
-  let document = svg.to_string(qr, options)
+  let document = svg.to_string_with(qr, options)
 
   string.contains(does: document, contain: "viewBox=\"0 0 21 21\"")
   |> should.be_true
@@ -1249,6 +1288,7 @@ pub fn rmqr_encodes_kana_in_kanji_mode_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("こんにちは")
     |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_rectangular_priority(types.ShortestHeight)
     |> qrkit.build
   // R7x59: five characters in Kanji mode need 3 + 3 + 65 = 71 bits.
   qrkit.symbol_size(qr) |> should.equal(#(59, 7))
@@ -1277,6 +1317,7 @@ pub fn rmqr_mixes_kanji_and_alphanumeric_segments_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("品番ABC-12345 数量10")
     |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.with_rectangular_priority(types.ShortestHeight)
     |> qrkit.build
   qrkit.symbol_size(qr) |> should.equal(#(77, 7))
 }

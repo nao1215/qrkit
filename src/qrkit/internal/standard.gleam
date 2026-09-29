@@ -317,20 +317,83 @@ fn build_matrix(
   case version.symbol_size(chosen_version) {
     Error(error) -> Error(error)
     Ok(size) -> {
-      let base =
-        matrix.new(size, size)
-        |> setup_finder_patterns(chosen_version)
-        |> setup_timing_pattern
-        |> setup_alignment_patterns(chosen_version)
-        |> setup_format_info(ecc, 0)
-      let with_version = case chosen_version >= 7 {
-        True -> setup_version_info(base, chosen_version)
-        False -> base
-      }
-      let placed = setup_data(with_version, codewords)
+      let placed =
+        setup_data(function_patterns(chosen_version, size), codewords)
       let #(best_mask, masked) = choose_best_mask(placed, ecc)
       Ok(#(best_mask, setup_format_info(masked, ecc, best_mask)))
     }
+  }
+}
+
+/// The matrix with every function pattern drawn and marked reserved: finder,
+/// timing and alignment patterns, the format information area (drawn for an
+/// arbitrary level and mask; it is rewritten once the mask is chosen), and
+/// the version information from version 7.
+fn function_patterns(chosen_version: Int, size: Int) -> matrix.Matrix {
+  let base =
+    matrix.new(size, size)
+    |> setup_finder_patterns(chosen_version)
+    |> setup_timing_pattern
+    |> setup_alignment_patterns(chosen_version)
+    |> setup_format_info(types.Medium, 0)
+  case chosen_version >= 7 {
+    True -> setup_version_info(base, chosen_version)
+    False -> base
+  }
+}
+
+/// The `(row, col)` of every data module of `chosen_version`, in the order
+/// codeword bits are placed (and read back by a decoder).
+pub fn data_module_positions(chosen_version: Int) -> List(#(Int, Int)) {
+  case version.symbol_size(chosen_version) {
+    Ok(size) ->
+      data_positions(
+        function_patterns(chosen_version, size),
+        size - 1,
+        size - 1,
+        -1,
+        [],
+      )
+    Error(_) -> []
+  }
+}
+
+/// The two 15-bit copies of the format information of a symbol given as
+/// `module(row, col)`, each read in the bit order `setup_format_info` writes.
+pub fn read_format_copies(
+  module: fn(Int, Int) -> Bool,
+  size: Int,
+) -> #(Int, Int) {
+  util.range(0, 14)
+  |> list.fold(#(0, 0), fn(acc, index) {
+    let vertical_row = case index < 6 {
+      True -> index
+      False ->
+        case index < 8 {
+          True -> index + 1
+          False -> size - 15 + index
+        }
+    }
+    let horizontal_col = case index < 8 {
+      True -> size - index - 1
+      False ->
+        case index < 9 {
+          True -> 15 - index
+          False -> 14 - index
+        }
+    }
+    let weight = power_of_two(index)
+    #(
+      acc.0 + bool_value(module(vertical_row, 8)) * weight,
+      acc.1 + bool_value(module(8, horizontal_col)) * weight,
+    )
+  })
+}
+
+fn bool_value(value: Bool) -> Int {
+  case value {
+    True -> 1
+    False -> 0
   }
 }
 

@@ -4,20 +4,24 @@
 //// correction. Reuses the standard Reed-Solomon engine and matrix primitives;
 //// functional patterns and format info follow ISO/IEC 23941.
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import qrkit/error.{
   type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
 import qrkit/internal/bitstream
+import qrkit/internal/format_info
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
 import qrkit/internal/segment
 import qrkit/internal/util
 import qrkit/types.{
-  type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte, High,
-  Kanji, Medium, Numeric,
+  type ErrorCorrection, type Mode, type ModePreference, type RectangularPriority,
+  Alphanumeric, Byte, High, Kanji, Medium, NarrowestWidth, Numeric,
+  ShortestHeight, SmallestArea,
 }
 
 pub opaque type Encoded {
@@ -152,6 +156,7 @@ pub fn encode(
   ecc: ErrorCorrection,
   requested_version: Option(Int),
   preference: ModePreference,
+  priority: RectangularPriority,
 ) -> Result(Encoded, EncodeError) {
   use _ <- result_try(validate_ecc(ecc))
   use #(chosen, segments) <- result_try(resolve_version(
@@ -159,6 +164,7 @@ pub fn encode(
     ecc,
     requested_version,
     preference,
+    priority,
   ))
   use codewords <- result_try(create_codewords(segments, ecc, chosen))
   let h_size = lookup_int(widths, chosen)
@@ -173,9 +179,10 @@ fn resolve_version(
   ecc: ErrorCorrection,
   requested_version: Option(Int),
   preference: ModePreference,
+  priority: RectangularPriority,
 ) -> Result(#(Int, List(segment.Segment)), EncodeError) {
   case requested_version {
-    None -> find_version(text, ecc, preference, 0)
+    None -> find_version(text, ecc, preference, search_order(priority))
     Some(value) ->
       case value < 1 || value > total_versions {
         True -> Error(InvalidVersion(value))
@@ -251,16 +258,40 @@ fn find_version(
   text: String,
   ecc: ErrorCorrection,
   preference: ModePreference,
-  candidate: Int,
+  candidates: List(Int),
 ) -> Result(#(Int, List(segment.Segment)), EncodeError) {
-  case candidate >= total_versions {
-    True -> Error(no_version_fits_error(text, ecc, preference))
-    False ->
+  case candidates {
+    [] -> Error(no_version_fits_error(text, ecc, preference))
+    [candidate, ..rest] ->
       case check_version(text, ecc, preference, candidate) {
         Ok(found) -> Ok(found)
-        Error(_) -> find_version(text, ecc, preference, candidate + 1)
+        Error(_) -> find_version(text, ecc, preference, rest)
       }
   }
+}
+
+/// Version indices in the order `find_version` tries them. Capacity grows
+/// with both dimensions, so the first size that fits in this order is the
+/// smallest by the chosen measure.
+fn search_order(priority: RectangularPriority) -> List(Int) {
+  let key = fn(index) {
+    let width = lookup_int(widths, index)
+    let height = lookup_int(heights, index)
+    case priority {
+      SmallestArea -> #(width * height, height)
+      ShortestHeight -> #(height, width)
+      NarrowestWidth -> #(width, height)
+    }
+  }
+  util.range(0, total_versions - 1)
+  |> list.sort(fn(a, b) {
+    let #(a1, a2) = key(a)
+    let #(b1, b2) = key(b)
+    case int.compare(a1, b1) {
+      order.Eq -> int.compare(a2, b2)
+      other -> other
+    }
+  })
 }
 
 /// Build a `DataExceedsCapacity` error for the bailout case where no rMQR
@@ -283,14 +314,14 @@ fn data_capacity_bits(index: Int, ecc: ErrorCorrection) -> Int {
   data_codewords(index, ecc) * 8
 }
 
-fn data_codewords(index: Int, ecc: ErrorCorrection) -> Int {
+pub fn data_codewords(index: Int, ecc: ErrorCorrection) -> Int {
   case ecc {
     High -> lookup_int(data_codewords_h, index)
     _ -> lookup_int(data_codewords_m, index)
   }
 }
 
-fn ec_block_count(index: Int, ecc: ErrorCorrection) -> Int {
+pub fn ec_block_count(index: Int, ecc: ErrorCorrection) -> Int {
   case ecc {
     High -> lookup_int(ec_blocks_h, index)
     _ -> lookup_int(ec_blocks_m, index)
@@ -406,19 +437,122 @@ fn build_matrix(
   total_codewords: Int,
   codewords: List(Int),
 ) -> matrix.Matrix {
-  let base =
-    matrix.new(h_size, v_size)
-    |> draw_timing_borders(h_size, v_size)
-    |> draw_top_left_finder
-    |> draw_bottom_right_subfinder(h_size, v_size)
-    |> draw_top_right_corner(h_size)
-    |> draw_bottom_left_corner(v_size)
-    |> draw_separator(h_size, v_size)
-    |> draw_alignment_patterns(h_size, v_size)
-    |> reserve_format_info(h_size, v_size)
-  let placed = place_data(base, h_size, v_size, total_codewords, codewords)
+  let placed =
+    place_data(
+      function_patterns(h_size, v_size),
+      h_size,
+      v_size,
+      total_codewords,
+      codewords,
+    )
   let masked = apply_fixed_mask(placed)
   place_format_info(masked, index, ecc, h_size, v_size)
+}
+
+fn function_patterns(h_size: Int, v_size: Int) -> matrix.Matrix {
+  matrix.new(h_size, v_size)
+  |> draw_timing_borders(h_size, v_size)
+  |> draw_top_left_finder
+  |> draw_bottom_right_subfinder(h_size, v_size)
+  |> draw_top_right_corner(h_size)
+  |> draw_bottom_left_corner(v_size)
+  |> draw_separator(h_size, v_size)
+  |> draw_alignment_patterns(h_size, v_size)
+  |> reserve_format_info(h_size, v_size)
+}
+
+/// The `(row, col)` of every data module of the version at `index`, in
+/// placement order (exactly `total_codewords(index) * 8` of them).
+pub fn data_module_positions(index: Int) -> List(#(Int, Int)) {
+  let h_size = lookup_int(widths, index)
+  let v_size = lookup_int(heights, index)
+  data_positions(
+    function_patterns(h_size, v_size),
+    h_size,
+    v_size,
+    lookup_int(total_codewords_table, index),
+  )
+}
+
+/// The 0-based version index of a `width` x `height` rMQR symbol.
+pub fn index_for_size(width: Int, height: Int) -> Result(Int, Nil) {
+  list.zip(widths, heights)
+  |> list.index_fold(Error(Nil), fn(found, size, index) {
+    case found, size == #(width, height) {
+      Ok(_), _ -> found
+      Error(_), True -> Ok(index)
+      Error(_), False -> found
+    }
+  })
+}
+
+/// The two 18-bit copies of the format information of a symbol given as
+/// `module(row, col)`, in the bit order `place_left_format` and
+/// `place_right_format` write.
+pub fn read_format(
+  module: fn(Int, Int) -> Bool,
+  h_size: Int,
+  v_size: Int,
+) -> #(Int, Int) {
+  let read = fn(row0, col0, extra_row, extra_col) {
+    let main =
+      util.range(0, 4)
+      |> list.fold(0, fn(acc, i) {
+        util.range(0, 2)
+        |> list.fold(acc, fn(acc2, j) {
+          case module(row0 + i, col0 + j) {
+            True -> acc2 + power_of_two(j * 5 + i)
+            False -> acc2
+          }
+        })
+      })
+    util.range(0, 2)
+    |> list.fold(main, fn(acc, k) {
+      case module(extra_row(k), extra_col(k)) {
+        True -> acc + power_of_two(15 + k)
+        False -> acc
+      }
+    })
+  }
+  #(
+    read(1, 8, fn(k) { k + 1 }, fn(_) { 11 }),
+    read(v_size - 6, h_size - 8, fn(_) { v_size - 6 }, fn(k) { h_size - 5 + k }),
+  )
+}
+
+/// The version index and error correction level whose format information is
+/// within 3 bits of either copy.
+pub fn decode_format(
+  left: Int,
+  right: Int,
+) -> Result(#(Int, ErrorCorrection), Nil) {
+  let candidates = fn(table) {
+    list.index_map(table, fn(value, i) {
+      let ecc = case i >= total_versions {
+        True -> High
+        False -> Medium
+      }
+      #(#(i % total_versions, ecc), value)
+    })
+  }
+  case format_info.nearest(candidates(format_info_left), [left], 3) {
+    Ok(found) -> Ok(found)
+    Error(Nil) -> format_info.nearest(candidates(format_info_right), [right], 3)
+  }
+}
+
+/// The fixed rMQR data mask at `(row, col)`.
+pub fn mask_at(row: Int, col: Int) -> Bool {
+  { row / 2 + col / 3 } % 2 == 0
+}
+
+pub fn total_codewords(index: Int) -> Int {
+  lookup_int(total_codewords_table, index)
+}
+
+/// Width of the character count indicator of `selected_mode` at `index`.
+pub fn count_bits(selected_mode: Mode, index: Int) -> Int {
+  lookup_cci(selected_mode, index)
 }
 
 fn draw_timing_borders(
@@ -759,7 +893,7 @@ fn do_apply_mask(target: matrix.Matrix, row: Int, col: Int) -> matrix.Matrix {
             True -> do_apply_mask(target, row, col + 1)
             False ->
               do_apply_mask(
-                matrix.xor(target, row, col, { row / 2 + col / 3 } % 2 == 0),
+                matrix.xor(target, row, col, mask_at(row, col)),
                 row,
                 col + 1,
               )

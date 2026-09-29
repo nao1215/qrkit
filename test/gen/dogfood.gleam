@@ -84,7 +84,7 @@ fn app_share_url_three_ways() -> Nil {
   |> list.take(5)
   |> list.each(io.println)
 
-  let svg_doc = svg.to_string(qr, svg.default_options())
+  let svg_doc = svg.to_string(qr)
   io.println("svg length: " <> int.to_string(string.length(svg_doc)))
 
   save_png("share_url.png", qr)
