@@ -66,8 +66,13 @@ pub fn with_background(options: SvgOptions, draw: Bool) -> SvgOptions {
   SvgOptions(module_size, margin, dark_color, light_color, draw)
 }
 
-/// Render a QR code as an SVG document string.
-pub fn to_string(qr: qrkit.QrCode, options: SvgOptions) -> String {
+/// Render a QR code as an SVG document string with `default_options()`.
+pub fn to_string(qr: qrkit.QrCode) -> String {
+  to_string_with(qr, default_options())
+}
+
+/// Render a QR code as an SVG document string with explicit options.
+pub fn to_string_with(qr: qrkit.QrCode, options: SvgOptions) -> String {
   let SvgOptions(module_size, margin, dark_color, light_color, background) =
     options
   let total_width = { qrkit.width(qr) + margin * 2 } * module_size

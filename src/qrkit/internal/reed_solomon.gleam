@@ -104,6 +104,218 @@ fn interleave_lists(blocks: List(List(Int))) -> List(Int) {
   })
 }
 
+/// Undo `encode_interleaved`: split the codewords read from a symbol into its
+/// blocks, each holding its data codewords followed by its error-correction
+/// codewords.
+pub fn deinterleave(
+  codewords: List(Int),
+  total_codewords total_codewords: Int,
+  data_codewords data_codewords: Int,
+  blocks blocks: Int,
+) -> List(List(Int)) {
+  let blocks_in_group2 = total_codewords % blocks
+  let data1 = data_codewords / blocks
+  let ec_count = total_codewords / blocks - data1
+  let sizes =
+    list.append(
+      list.repeat(data1, blocks - blocks_in_group2),
+      list.repeat(data1 + 1, blocks_in_group2),
+    )
+  let #(data_part, ec_part) = list.split(codewords, data_codewords)
+  let data_blocks = distribute(data_part, sizes)
+  let ec_blocks = distribute(ec_part, list.repeat(ec_count, blocks))
+  list.map2(data_blocks, ec_blocks, list.append)
+}
+
+/// Hand codewords out column by column to blocks of the given sizes, skipping
+/// blocks that are already full.
+fn distribute(codewords: List(Int), sizes: List(Int)) -> List(List(Int)) {
+  let widest = list.fold(sizes, 0, int.max)
+  let owners =
+    util.range(0, widest - 1)
+    |> list.flat_map(fn(column) {
+      list.index_map(sizes, fn(size, block) { #(block, column < size) })
+      |> list.filter_map(fn(slot) {
+        case slot.1 {
+          True -> Ok(slot.0)
+          False -> Error(Nil)
+        }
+      })
+    })
+  let tagged = list.zip(owners, codewords)
+  list.index_map(sizes, fn(_, block) {
+    list.filter_map(tagged, fn(entry) {
+      case entry.0 == block {
+        True -> Ok(entry.1)
+        False -> Error(Nil)
+      }
+    })
+  })
+}
+
+/// Correct a received block (data then `ec_count` error-correction
+/// codewords) and return it with the number of codewords changed. Uses
+/// Berlekamp-Massey for the error locator, a Chien search for the positions
+/// and Forney's formula for the values. Fails when the block has more errors
+/// than the code can locate consistently.
+pub fn correct(
+  block: List(Int),
+  ec_count: Int,
+) -> Result(#(List(Int), Int), Nil) {
+  let received = syndromes(block, ec_count)
+  case list.all(received, fn(value) { value == 0 }) {
+    True -> Ok(#(block, 0))
+    False -> {
+      let locator = berlekamp_massey(received)
+      let errors = list.length(locator) - 1
+      let length = list.length(block)
+      let positions =
+        util.range(0, length - 1)
+        |> list.filter(fn(index) {
+          poly_eval_low(locator, gf_exp(255 - { length - 1 - index })) == 0
+        })
+      case errors * 2 > ec_count || list.length(positions) != errors {
+        True -> Error(Nil)
+        False -> {
+          let evaluator =
+            poly_multiply_low(received, locator) |> list.take(ec_count)
+          let derivative = formal_derivative(locator)
+          let corrected =
+            list.index_map(block, fn(codeword, index) {
+              case list.contains(positions, index) {
+                False -> codeword
+                True -> {
+                  let x = gf_exp(length - 1 - index)
+                  let x_inverse = gf_exp(255 - { length - 1 - index })
+                  let magnitude =
+                    gf_multiply(
+                      gf_multiply(x, poly_eval_low(evaluator, x_inverse)),
+                      gf_inverse(poly_eval_low(derivative, x_inverse)),
+                    )
+                  int.bitwise_exclusive_or(codeword, magnitude)
+                }
+              }
+            })
+          case list.all(syndromes(corrected, ec_count), fn(v) { v == 0 }) {
+            True -> Ok(#(corrected, errors))
+            False -> Error(Nil)
+          }
+        }
+      }
+    }
+  }
+}
+
+/// S_i = r(alpha^i) for i in 0 .. ec_count - 1, reading the block as a
+/// polynomial with its first codeword as the highest-degree coefficient.
+fn syndromes(block: List(Int), ec_count: Int) -> List(Int) {
+  util.range(0, ec_count - 1)
+  |> list.map(fn(power) {
+    let root = gf_exp(power)
+    list.fold(block, 0, fn(acc, codeword) {
+      int.bitwise_exclusive_or(gf_multiply(acc, root), codeword)
+    })
+  })
+}
+
+/// Error locator polynomial, lowest-degree coefficient first.
+fn berlekamp_massey(syndromes: List(Int)) -> List(Int) {
+  let #(locator, _, length, _, _) =
+    list.index_fold(syndromes, #([1], [1], 0, 1, 1), fn(state, _, n) {
+      let #(current, previous, length, shift, last_discrepancy) = state
+      let discrepancy =
+        util.range(0, length)
+        |> list.fold(0, fn(acc, i) {
+          int.bitwise_exclusive_or(
+            acc,
+            gf_multiply(
+              util.at_or(current, i, default: 0),
+              util.at_or(syndromes, n - i, default: 0),
+            ),
+          )
+        })
+      case discrepancy == 0 {
+        True -> #(current, previous, length, shift + 1, last_discrepancy)
+        False -> {
+          let scale = gf_multiply(discrepancy, gf_inverse(last_discrepancy))
+          let adjusted =
+            poly_add_low(
+              current,
+              list.append(
+                list.repeat(0, shift),
+                list.map(previous, fn(c) { gf_multiply(c, scale) }),
+              ),
+            )
+          case 2 * length <= n {
+            True -> #(adjusted, current, n + 1 - length, 1, discrepancy)
+            False -> #(adjusted, previous, length, shift + 1, last_discrepancy)
+          }
+        }
+      }
+    })
+  list.take(locator, length + 1)
+}
+
+fn poly_add_low(left: List(Int), right: List(Int)) -> List(Int) {
+  case left, right {
+    [], rest | rest, [] -> rest
+    [a, ..left_rest], [b, ..right_rest] -> [
+      int.bitwise_exclusive_or(a, b),
+      ..poly_add_low(left_rest, right_rest)
+    ]
+  }
+}
+
+fn poly_multiply_low(left: List(Int), right: List(Int)) -> List(Int) {
+  list.index_fold(left, [], fn(acc, a, i) {
+    poly_add_low(
+      acc,
+      list.append(
+        list.repeat(0, i),
+        list.map(right, fn(b) { gf_multiply(a, b) }),
+      ),
+    )
+  })
+}
+
+fn poly_eval_low(poly: List(Int), x: Int) -> Int {
+  list.fold_right(poly, 0, fn(acc, coefficient) {
+    int.bitwise_exclusive_or(gf_multiply(acc, x), coefficient)
+  })
+}
+
+/// Formal derivative over GF(2^8): only odd-degree terms survive.
+fn formal_derivative(poly: List(Int)) -> List(Int) {
+  case poly {
+    [] -> []
+    [_, ..rest] ->
+      list.index_map(rest, fn(coefficient, i) {
+        case i % 2 == 0 {
+          True -> coefficient
+          False -> 0
+        }
+      })
+  }
+}
+
+fn gf_inverse(value: Int) -> Int {
+  // value^254 = value^-1 in GF(2^8).
+  gf_power(value, 254, 1)
+}
+
+fn gf_power(base: Int, exponent: Int, acc: Int) -> Int {
+  case exponent {
+    0 -> acc
+    _ -> {
+      let next_acc = case exponent % 2 == 1 {
+        True -> gf_multiply(acc, base)
+        False -> acc
+      }
+      gf_power(gf_multiply(base, base), exponent / 2, next_acc)
+    }
+  }
+}
+
 /// Multiply two field elements in GF(2^8) with primitive polynomial `0x11D`.
 pub fn gf_multiply(a: Int, b: Int) -> Int {
   gf_multiply_loop(a, b, 0)

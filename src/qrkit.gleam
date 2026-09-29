@@ -30,10 +30,20 @@ pub type ModePreference =
 pub type Symbol =
   types.Symbol
 
+/// Type alias for [`qrkit/types.RectangularPriority`](./qrkit/types.html#RectangularPriority).
+/// To pattern-match on `SmallestArea | ShortestHeight | NarrowestWidth`, `import qrkit/types`.
+pub type RectangularPriority =
+  types.RectangularPriority
+
 /// Type alias for [`qrkit/error.EncodeError`](./qrkit/error.html#EncodeError).
 /// To pattern-match on `EmptyInput | InvalidVersion(..) | InvalidEciDesignator(..) | DataExceedsCapacity(..) | UnsupportedCharacter(..) | IncompatibleOptions(..)`, `import qrkit/error`.
 pub type EncodeError =
   error.EncodeError
+
+/// Type alias for [`qrkit/error.DecodeError`](./qrkit/error.html#DecodeError).
+/// To pattern-match on `NotASymbol(..) | UnreadableFormatInformation | TooManyErrors | MalformedData(..)`, `import qrkit/error`.
+pub type DecodeError =
+  error.DecodeError
 
 /// Type alias for [`qrkit/error.MatrixAccessError`](./qrkit/error.html#MatrixAccessError).
 /// To pattern-match on `ModuleOutOfBounds(..)`, `import qrkit/error`.
@@ -48,6 +58,7 @@ pub opaque type Builder {
     eci: Option(Int),
     symbol: Symbol,
     preference: ModePreference,
+    rectangular_priority: Option(RectangularPriority),
   )
 }
 
@@ -70,7 +81,7 @@ pub fn package_version() -> String {
 
 /// Create a new builder from input text.
 pub fn new(data: String) -> Builder {
-  Builder(data, types.Medium, None, None, types.Standard, types.Auto)
+  Builder(data, types.Medium, None, None, types.Standard, types.Auto, None)
 }
 
 /// Encode input text using the default builder configuration.
@@ -80,8 +91,8 @@ pub fn encode(data: String) -> Result(QrCode, EncodeError) {
 
 /// Set the desired error correction level.
 pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
-  let Builder(data, _, min_version, eci, symbol, preference) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference)
+  let Builder(data, _, min_version, eci, symbol, preference, priority) = builder
+  Builder(data, ecc, min_version, eci, symbol, preference, priority)
 }
 
 /// Pin the symbol version exactly.
@@ -96,8 +107,8 @@ pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
 /// When no exact version is configured, the encoder selects the smallest
 /// version that fits the payload.
 pub fn with_exact_version(builder: Builder, version: Int) -> Builder {
-  let Builder(data, ecc, _, eci, symbol, preference) = builder
-  Builder(data, ecc, Some(version), eci, symbol, preference)
+  let Builder(data, ecc, _, eci, symbol, preference, priority) = builder
+  Builder(data, ecc, Some(version), eci, symbol, preference, priority)
 }
 
 /// Compatibility alias for [`with_exact_version`](#with_exact_version).
@@ -114,14 +125,22 @@ pub fn with_min_version(builder: Builder, min_version: Int) -> Builder {
 /// 0..999999; invalid values surface as `Error(InvalidEciDesignator(..))`
 /// during `build`.
 pub fn with_eci(builder: Builder, designator: Int) -> Builder {
-  let Builder(data, ecc, min_version, _, symbol, preference) = builder
-  Builder(data, ecc, min_version, Some(designator), symbol, preference)
+  let Builder(data, ecc, min_version, _, symbol, preference, priority) = builder
+  Builder(
+    data,
+    ecc,
+    min_version,
+    Some(designator),
+    symbol,
+    preference,
+    priority,
+  )
 }
 
 /// Select the symbol family.
 pub fn with_symbol(builder: Builder, symbol: Symbol) -> Builder {
-  let Builder(data, ecc, min_version, eci, _, preference) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference)
+  let Builder(data, ecc, min_version, eci, _, preference, priority) = builder
+  Builder(data, ecc, min_version, eci, symbol, preference, priority)
 }
 
 /// Change the mode optimisation strategy.
@@ -129,17 +148,30 @@ pub fn with_mode_preference(
   builder: Builder,
   preference: ModePreference,
 ) -> Builder {
-  let Builder(data, ecc, min_version, eci, symbol, _) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference)
+  let Builder(data, ecc, min_version, eci, symbol, _, priority) = builder
+  Builder(data, ecc, min_version, eci, symbol, preference, priority)
+}
+
+/// Choose how `build` picks the rMQR size when no exact version is set:
+/// `SmallestArea` (the default), `ShortestHeight` for narrow labels, or
+/// `NarrowestWidth`. Only rMQR has more than one shape per capacity, so
+/// setting it for another symbol family returns `Error(IncompatibleOptions)`.
+pub fn with_rectangular_priority(
+  builder: Builder,
+  priority: RectangularPriority,
+) -> Builder {
+  let Builder(data, ecc, min_version, eci, symbol, preference, _) = builder
+  Builder(data, ecc, min_version, eci, symbol, preference, Some(priority))
 }
 
 /// Build a QR code from the accumulated builder configuration.
 pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
-  let Builder(data, ecc, min_version, eci, symbol, preference) = builder
+  let Builder(data, ecc, min_version, eci, symbol, preference, priority) =
+    builder
   case data == "" {
     True -> Error(error.EmptyInput)
     False ->
-      case validate_builder_options(min_version, eci, symbol) {
+      case validate_builder_options(min_version, eci, symbol, priority) {
         Error(error) -> Error(error)
         Ok(Nil) ->
           case symbol {
@@ -172,7 +204,15 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
                 Error(encode_error) -> Error(encode_error)
               }
             types.Rectangular ->
-              case rmqr.encode(data, ecc, min_version, preference) {
+              case
+                rmqr.encode(
+                  data,
+                  ecc,
+                  min_version,
+                  preference,
+                  option.unwrap(priority, types.SmallestArea),
+                )
+              {
                 Ok(encoded) ->
                   Ok(QrCode(
                     rmqr.version(encoded),
@@ -194,10 +234,22 @@ fn validate_builder_options(
   min_version: Option(Int),
   eci: Option(Int),
   symbol: Symbol,
+  priority: Option(RectangularPriority),
 ) -> Result(Nil, EncodeError) {
   case validate_min_version(min_version, symbol) {
     Error(error) -> Error(error)
-    Ok(Nil) -> validate_eci(eci, symbol)
+    Ok(Nil) ->
+      case validate_eci(eci, symbol) {
+        Error(error) -> Error(error)
+        Ok(Nil) ->
+          case priority, symbol {
+            Some(_), types.Standard | Some(_), types.Micro ->
+              Error(error.IncompatibleOptions(
+                "rectangular priority is only supported for rMQR",
+              ))
+            _, _ -> Ok(Nil)
+          }
+      }
   }
 }
 

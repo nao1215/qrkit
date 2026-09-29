@@ -7,9 +7,9 @@
 [![License](https://img.shields.io/github/license/nao1215/qrkit)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/nao1215/qrkit/badge)](https://scorecard.dev/viewer/?uri=github.com/nao1215/qrkit)
 
-Pure-Gleam QR code generator for the Erlang and JavaScript targets.
+Pure-Gleam QR code generator and decoder for the Erlang and JavaScript targets.
 
-Covers Standard QR (versions 1–40, ECC L/M/Q/H), Micro QR (M1–M4), rMQR (ISO/IEC 23941, 32 sizes), and Structured Append. Ships with terminal, SVG, and PNG renderers and content helpers for URL, WiFi, vCard, email, SMS, phone, geo, and calendar payloads.
+Covers Standard QR (versions 1–40, ECC L/M/Q/H), Micro QR (M1–M4), rMQR (ISO/IEC 23941, 32 sizes), and Structured Append, with Kanji mode for all of JIS X 0208 and segmentation that picks the fewest bits. Ships with terminal, SVG, and PNG renderers, a decoder for module matrices with Reed-Solomon error correction, and content helpers for URL, WiFi, vCard, email, SMS, phone, geo, and calendar payloads.
 
 The QR below points to the project's GitHub Sponsors page. Try scanning it with your phone — every example in this README was used to render it.
 
@@ -63,7 +63,7 @@ import qrkit/render/svg
 
 pub fn render_svg() -> String {
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 ```
 
@@ -83,7 +83,7 @@ pub fn dark_themed_svg() -> String {
     |> svg.with_background(True)
 
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  svg.to_string(qr, options)
+  svg.to_string_with(qr, options)
 }
 ```
 
@@ -170,7 +170,7 @@ pub fn wifi_qr_svg() -> String {
       hidden: False,
     )
   let assert Ok(qr) = qrkit.encode(payload)
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 ```
 
@@ -252,6 +252,25 @@ pub fn ecc_letter_for_quartile() -> String {
 
 `qrkit.rows/1` returns the matrix as `List(List(Bool))` for custom renderers. `qrkit.module_at/3` returns `Error(ModuleOutOfBounds(..))` for invalid coordinates instead of silently treating them as light modules.
 
+## Decode a module matrix
+
+`qrkit/decode` reads a Standard QR, Micro QR or rMQR symbol from rows of modules — the shape `qrkit.rows` returns — and corrects damaged codewords with Reed-Solomon error correction. A light quiet zone is removed, rotated and mirrored symbols are read, and Byte data is interpreted by its ECI or, without one, guessed between UTF-8, Shift JIS and ISO-8859-1 as zxing does.
+
+```gleam
+import qrkit
+import qrkit/decode
+
+pub fn round_trip() -> Result(String, qrkit.DecodeError) {
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
+  case decode.from_rows(qrkit.rows(qr)) {
+    Ok(decoded) -> Ok(decode.text(decoded))
+    Error(error) -> Error(error)
+  }
+}
+```
+
+`decode.errors_corrected`, `decode.error_correction`, `decode.version`, `decode.eci` and `decode.structured_append` report what was read. Errors are `NotASymbol(width, height)`, `UnreadableFormatInformation`, `TooManyErrors` and `MalformedData(reason)` in `qrkit/error`. The decoder reads a grid of modules, not a photo: locating a symbol in a camera image is out of scope.
+
 ## Micro QR
 
 Micro QR squeezes a small payload into 11×11 — 17×17 modules. M1 takes Numeric only; M2 adds Alphanumeric; M3 and M4 take all four modes. ECC level constraints follow ISO/IEC 18004 Annex K (M1 has error detection only, M4 supports up to Quartile).
@@ -269,7 +288,7 @@ pub fn business_card_qr() -> String {
     |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 ```
 
@@ -291,11 +310,14 @@ pub fn label_qr() -> String {
     qrkit.new("https://github.com/sponsors/nao1215")
     |> qrkit.with_symbol(types.Rectangular)
     |> qrkit.with_ecc(types.Medium)
+    |> qrkit.with_rectangular_priority(types.ShortestHeight)
     |> qrkit.build()
 
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 ```
+
+Several sizes usually hold the same payload. `build` picks the one with the fewest modules by default (`types.SmallestArea`); `types.ShortestHeight` picks the lowest symbol for narrow labels, and `types.NarrowestWidth` the narrowest. `with_exact_version` pins one size instead.
 
 ## Structured Append
 
@@ -366,7 +388,7 @@ Full API reference: <https://hexdocs.pm/qrkit/>.
 
 ## Scope and non-goals
 
-- qrkit is an **encoder only**. Image parsing and QR decoding are out of scope.
+- qrkit encodes, and decodes module matrices. Finding a symbol in an image (detection, perspective correction, thresholding) is out of scope.
 - Kanji mode covers the characters of JIS X 0208. Characters outside it (CP932 extensions such as circled digits, and JIS X 0213 additions) are encoded in Byte mode as UTF-8.
 - Model 1 QR (the pre-1997 specification) is not implemented; only Model 2 (ISO/IEC 18004:2015), Micro QR, and rMQR.
 - The encoder does not normalise input (no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL-truncation). Whatever string you pass is the exact byte sequence that lands in the symbol's Byte segment.

@@ -4,14 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `qrkit/decode` reads Standard QR, Micro QR and rMQR symbols from rows of modules (`decode.from_rows(qrkit.rows(qr))`), with Reed-Solomon error correction (Berlekamp-Massey, Chien search, Forney). It removes a light quiet zone, reads rotated and mirrored symbols, and parses Numeric, Alphanumeric, Byte, Kanji, ECI, Structured Append and FNC1. Byte data follows its ECI; without one it is read as UTF-8, Shift JIS or ISO-8859-1 by zxing's rules. `decode.text`, `symbol`, `version`, `error_correction`, `mask`, `errors_corrected`, `eci` and `structured_append` report what was read; failures are `qrkit/error.DecodeError` (`NotASymbol`, `UnreadableFormatInformation`, `TooManyErrors`, `MalformedData`).
+- `qrkit.with_rectangular_priority` chooses how `build` picks among the rMQR sizes that hold the payload: `types.SmallestArea`, `types.ShortestHeight` or `types.NarrowestWidth`. Setting it for Standard QR or Micro QR returns `Error(IncompatibleOptions)`.
+- `svg.to_string_with(qr, options)` renders with explicit options. (#31)
+
 ### Fixed
 
 - rMQR symbols whose error correction ISO/IEC 23941 Table 8 splits into several Reed-Solomon blocks were encoded with a single block over all data codewords, so readers could not decode them: 35 of the 64 version and level pairs (R7x139-H, R9x139-M, R17x139-M and every larger or H-level size with more than one block). Each block now gets its own error correction and the blocks are interleaved as the standard requires. Checked against zxing-cpp and shogo82148/qrcode.
 - Standard QR rejected payloads that fit version 10 or later with `DataExceedsCapacity`, for example `string.repeat("abc123456", 30)` at Low, which fits version 10. Segment headers were counted with the character-count widths of versions 1-9 and then encoded with the wider ones of the chosen version. Each version range (1-9, 10-26, 27-40) is now segmented and measured with its own widths.
 - Micro QR and rMQR never used Kanji mode, so kana cost 24 bits per character in Byte mode instead of 13; `"カタカナ"` now fits Micro QR M3 at Medium instead of M4, and fits M4 at Quartile instead of being rejected.
 
+- Micro QR M1, M3-L and M3-M symbols whose last, 4-bit data codeword was padding carried a codeword error from the start: the error correction was computed over a full 0xEC pad byte while the symbol holds only its first four bits. Readers corrected it silently, but one more damaged module made the symbol unreadable. The half codeword is now padded with 0000 as ISO/IEC 18004 7.4.10 requires, and the modules match segno's.
+
 ### Changed
 
+- Breaking: `svg.to_string(qr)` renders with `svg.default_options()`, matching `ascii.to_string`; code that passed options calls `svg.to_string_with(qr, options)`. (#31)
+- rMQR picks the size with the fewest modules when no exact version is set (`types.SmallestArea`), instead of the lowest one. For example, `"01234567"` at Medium is now R11x27 (297 modules) instead of R7x43 (301). `qrkit.with_rectangular_priority(types.ShortestHeight)` keeps the previous choice.
 - Kanji mode covers all 6,879 characters of JIS X 0208 instead of kana, full-width alphanumerics and four punctuation marks, so a kanji takes 13 bits instead of 24 in Byte mode. The table is generated from the WHATWG jis0208 index by `scripts/gen_kanji_table.py`.
 - Standard QR, Micro QR and rMQR split the payload into the Numeric, Alphanumeric, Byte and Kanji segments with the fewest bits (ISO/IEC 18004 Annex J) instead of a greedy split for Standard QR and a single mode for Micro QR and rMQR. A symbol is never larger than before, and mixed payloads such as a URL ending in a long number often fit a smaller version. The modules of a symbol can differ from earlier releases for the same input.
 

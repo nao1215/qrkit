@@ -1,6 +1,7 @@
 //// BCH encoding for standard QR format and version information.
 
 import gleam/int
+import gleam/list
 import qrkit/types.{type ErrorCorrection, High, Low, Medium, Quartile}
 
 const g15 = 0b10100110111
@@ -13,6 +14,58 @@ pub fn format_bits(ecc: ErrorCorrection, mask: Int) -> Int {
   let data = int_from_ecc(ecc) * 8 + mask
   let remainder = bch_remainder(data, g15, 10)
   int.bitwise_exclusive_or(data * 1024 + remainder, g15_mask)
+}
+
+/// The error correction level and mask whose format information is nearest
+/// to either copy, if it is within 3 bits (the BCH(15,5) code corrects up to
+/// three errors).
+pub fn decode_format(
+  first: Int,
+  second: Int,
+) -> Result(#(ErrorCorrection, Int), Nil) {
+  let candidates =
+    list.flat_map([Low, Medium, Quartile, High], fn(ecc) {
+      list.map([0, 1, 2, 3, 4, 5, 6, 7], fn(mask) {
+        #(#(ecc, mask), format_bits(ecc, mask))
+      })
+    })
+  nearest(candidates, [first, second], 3)
+}
+
+/// The value of the candidate nearest (by Hamming distance) to any of
+/// `readings`, when that distance is at most `limit`.
+pub fn nearest(
+  candidates: List(#(a, Int)),
+  readings: List(Int),
+  limit: Int,
+) -> Result(a, Nil) {
+  let best =
+    list.fold(candidates, #(Error(Nil), limit + 1), fn(best, candidate) {
+      let distance =
+        list.fold(readings, limit + 1, fn(closest, reading) {
+          int.min(closest, hamming(candidate.1, reading))
+        })
+      case distance < best.1 {
+        True -> #(Ok(candidate.0), distance)
+        False -> best
+      }
+    })
+  best.0
+}
+
+fn hamming(left: Int, right: Int) -> Int {
+  count_ones(int.bitwise_exclusive_or(left, right), 0)
+}
+
+fn count_ones(value: Int, acc: Int) -> Int {
+  case value == 0 {
+    True -> acc
+    False ->
+      count_ones(
+        int.bitwise_shift_right(value, 1),
+        acc + int.bitwise_and(value, 1),
+      )
+  }
 }
 
 pub fn version_bits(version: Int) -> Int {

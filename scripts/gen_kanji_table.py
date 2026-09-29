@@ -53,8 +53,12 @@ def main() -> None:
     assert all(cp <= 0xFFFF for cp, _ in pairs), "JIS X 0208 maps into the BMP"
     # Seven segments per line is the layout `gleam format` settles on, so the
     # generated file passes `gleam format --check` as written.
-    segments = [f"0x{value:04X}:16" for cp, sjis in pairs for value in (cp, sjis)]
-    body = ",\n".join("  " + ", ".join(segments[i : i + 7]) for i in range(0, len(segments), 7))
+    def body(entries):
+        segments = [f"0x{value:04X}:16" for pair in entries for value in pair]
+        return ",\n".join("  " + ", ".join(segments[i : i + 7]) for i in range(0, len(segments), 7))
+
+    by_codepoint = body(pairs)
+    by_shift_jis = body(sorted((sjis, cp) for cp, sjis in pairs))
     OUT.write_text(
         "//// JIS X 0208 characters and their Shift JIS values for QR Kanji mode.\n"
         "////\n"
@@ -66,7 +70,13 @@ def main() -> None:
         "/// Sorted by code point; each entry is the code point then the Shift JIS\n"
         "/// value, 16 bits each.\n"
         "pub const entries: BitArray = <<\n"
-        f"{body},\n"
+        f"{by_codepoint},\n"
+        ">>\n"
+        "\n"
+        "/// The same pairs sorted by Shift JIS value; each entry is the Shift JIS\n"
+        "/// value then the code point, 16 bits each.\n"
+        "pub const by_shift_jis: BitArray = <<\n"
+        f"{by_shift_jis},\n"
         ">>\n",
         encoding="utf-8",
     )

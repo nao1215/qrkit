@@ -31,3 +31,14 @@ pub type Symbol {
   Micro
   Rectangular
 }
+
+/// How `build` chooses among the rMQR sizes that hold the payload when no
+/// exact version is set.
+pub type RectangularPriority {
+  /// The fewest modules (width x height); ties go to the lower symbol.
+  SmallestArea
+  /// The lowest symbol (7 modules first); ties go to the narrower one.
+  ShortestHeight
+  /// The narrowest symbol (27 modules first); ties go to the lower one.
+  NarrowestWidth
+}

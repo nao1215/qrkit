@@ -8,6 +8,7 @@ import gleam/string
 import gleeunit/should
 import qrkit
 import qrkit/content
+import qrkit/decode
 import qrkit/error
 import qrkit/render/ascii
 import qrkit/render/png
@@ -59,7 +60,7 @@ pub fn readme_high_density_qr_test() -> Nil {
 
 fn readme_render_svg() -> String {
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 
 pub fn readme_render_svg_test() -> Nil {
@@ -80,7 +81,7 @@ fn readme_dark_themed_svg() -> String {
     |> svg.with_background(True)
 
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  svg.to_string(qr, options)
+  svg.to_string_with(qr, options)
 }
 
 pub fn readme_dark_themed_svg_test() -> Nil {
@@ -159,7 +160,7 @@ fn readme_wifi_qr_svg() -> String {
       hidden: False,
     )
   let assert Ok(qr) = qrkit.encode(payload)
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 
 pub fn readme_wifi_qr_svg_test() -> Nil {
@@ -285,6 +286,19 @@ pub fn readme_inspect_matrix_test() -> Nil {
 // README: Micro QR
 // ---------------------------------------------------------------------------
 
+fn readme_round_trip() -> Result(String, qrkit.DecodeError) {
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
+  case decode.from_rows(qrkit.rows(qr)) {
+    Ok(decoded) -> Ok(decode.text(decoded))
+    Error(error) -> Error(error)
+  }
+}
+
+pub fn readme_round_trip_test() -> Nil {
+  readme_round_trip()
+  |> should.equal(Ok("https://github.com/sponsors/nao1215"))
+}
+
 fn readme_business_card_qr() -> String {
   let assert Ok(qr) =
     qrkit.new("01234567")
@@ -293,7 +307,7 @@ fn readme_business_card_qr() -> String {
     |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 
 pub fn readme_business_card_qr_test() -> Nil {
@@ -312,7 +326,7 @@ fn readme_label_qr() -> String {
     |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
-  svg.to_string(qr, svg.default_options())
+  svg.to_string(qr)
 }
 
 pub fn readme_label_qr_test() -> Nil {

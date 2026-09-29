@@ -309,20 +309,27 @@ fn to_sjis(char: String) -> Result(Int, Nil) {
 
 /// Binary search the JIS X 0208 table for `codepoint`'s Shift JIS value.
 fn codepoint_to_sjis(codepoint: Int) -> Result(Int, Nil) {
-  search_sjis(codepoint, 0, kanji_table.entry_count - 1)
+  search(kanji_table.entries, codepoint, 0, kanji_table.entry_count - 1)
 }
 
-fn search_sjis(codepoint: Int, low: Int, high: Int) -> Result(Int, Nil) {
+/// The code point of a JIS X 0208 character given its Shift JIS value.
+pub fn sjis_to_codepoint(sjis: Int) -> Result(Int, Nil) {
+  search(kanji_table.by_shift_jis, sjis, 0, kanji_table.entry_count - 1)
+}
+
+/// Binary search a table of 32-bit entries (16-bit key, 16-bit value)
+/// sorted by key.
+fn search(table: BitArray, key: Int, low: Int, high: Int) -> Result(Int, Nil) {
   case low > high {
     True -> Error(Nil)
     False -> {
       let middle = { low + high } / 2
-      case bit_array.slice(kanji_table.entries, at: middle * 4, take: 4) {
-        Ok(<<entry:16, sjis:16>>) ->
-          case int.compare(codepoint, entry) {
-            order.Eq -> Ok(sjis)
-            order.Lt -> search_sjis(codepoint, low, middle - 1)
-            order.Gt -> search_sjis(codepoint, middle + 1, high)
+      case bit_array.slice(table, at: middle * 4, take: 4) {
+        Ok(<<entry:16, value:16>>) ->
+          case int.compare(key, entry) {
+            order.Eq -> Ok(value)
+            order.Lt -> search(table, key, low, middle - 1)
+            order.Gt -> search(table, key, middle + 1, high)
           }
         _ -> Error(Nil)
       }
