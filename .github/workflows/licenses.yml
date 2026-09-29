@@ -1,0 +1,31 @@
+name: licenses
+
+# Keeps GPL, LGPL, AGPL and dependencies without a declared license out of
+# what this library pulls into its users' builds. Licenses come from hex.pm
+# (meta.licenses) for each package in the runtime closure of gleam.toml's
+# [dependencies], at the version manifest.toml locks. The job runs on
+# changes only: manifest.toml pins every version, so the verdict can only
+# change when a pull request changes the dependencies.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    name: dependency licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Judge the licenses
+        run: python3 scripts/supply_chain.py licenses --manifest manifest.toml

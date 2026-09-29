@@ -1,0 +1,57 @@
+name: osv-scan
+
+# Known-vulnerability scanning of the Hex packages this library depends on at
+# run time, against the OSV database (https://osv.dev), which carries the Hex
+# ecosystem advisories (GHSA and EEF). osv-scanner cannot read Gleam's
+# manifest.toml, so scripts/supply_chain.py turns the runtime closure of
+# gleam.toml's [dependencies] into a CycloneDX SBOM first and osv-scanner
+# scans that.
+#
+# The database changes every day, so a scan that passed at merge time can
+# fail tomorrow without a line of this repository changing. The
+# pull_request/push legs catch a newly added dependency; the schedule
+# catches a newly published advisory against the dependencies already in
+# manifest.toml.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    name: osv-scanner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+
+      # Pinned so a scanner release cannot change the verdict on its own. The
+      # advisory database is intentionally not pinned.
+      - name: Install osv-scanner
+        env:
+          GOTOOLCHAIN: auto
+        run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.6.0
+
+      - name: Build the SBOM
+        run: python3 scripts/supply_chain.py sbom --manifest manifest.toml --out "$RUNNER_TEMP/deps.cdx.json"
+
+      # Advisories that have no fixed version and that this repository has
+      # shown it does not reach go in osv-scanner.toml as [[IgnoredVulns]],
+      # one ID each, with the reason and a date to revisit. Anything else
+      # fails the job.
+      - name: Scan
+        run: osv-scanner scan source -L "$RUNNER_TEMP/deps.cdx.json"
