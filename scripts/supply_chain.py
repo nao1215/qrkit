@@ -35,7 +35,9 @@ import json
 import re
 import sys
 import tarfile
+import time
 import tomllib
+import urllib.error
 import urllib.request
 import uuid
 import zipfile
@@ -114,9 +116,21 @@ def deps_of(escript, manifest):
 
 
 def hex_json(url):
+    # hex.pm rate-limits anonymous API calls; a 429 or 5xx is retried after a
+    # pause. Anything else, or the last failure, raises OSError.
     req = urllib.request.Request(url, headers={"User-Agent": "gleam-supply-chain/1"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 and e.code < 500 or attempt == 3:
+                raise
+        except urllib.error.URLError:
+            if attempt == 3:
+                raise
+        time.sleep(15 * (attempt + 1))
+    raise OSError(f"cannot fetch {url}")
 
 
 def cmd_contents(a):
@@ -167,7 +181,7 @@ def cmd_sbom(a):
     }
     text = json.dumps(bom, indent=2) + "\n"
     if a.out:
-        Path(a.out).write_text(text)
+        Path(a.out).write_text(text, encoding="utf-8")
     else:
         sys.stdout.write(text)
     return 0
@@ -182,7 +196,14 @@ def cmd_licenses(a):
             print(f"{name} {ver}: source {p.get('source')} is not hex; judge by hand", file=sys.stderr)
             status = 1
             continue
-        meta = hex_json(f"https://hex.pm/api/packages/{name}")
+        try:
+            meta = hex_json(f"https://hex.pm/api/packages/{name}")
+        except (OSError, ValueError) as e:
+            # Not the same as a package without a declared license: the
+            # verdict is unknown because hex.pm could not be read.
+            print(f"{name} {ver}: - [UNREACHABLE: {e}]")
+            status = 1
+            continue
         lic = (meta.get("meta") or {}).get("licenses") or []
         verdict = "ok"
         if not lic:
@@ -199,9 +220,14 @@ def cmd_licenses(a):
 def save_texts(name, ver, bundle):
     url = f"https://repo.hex.pm/tarballs/{name}-{ver}.tar"
     req = urllib.request.Request(url, headers={"User-Agent": "gleam-supply-chain/1"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        outer = tarfile.open(fileobj=io.BytesIO(r.read()))
-    inner = tarfile.open(fileobj=outer.extractfile("contents.tar.gz"), mode="r:gz")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            outer = tarfile.open(fileobj=io.BytesIO(r.read()))
+        inner = tarfile.open(fileobj=outer.extractfile("contents.tar.gz"), mode="r:gz")
+    except (OSError, KeyError, tarfile.TarError) as e:
+        # save_spdx then bundles the standard text of the declared license.
+        print(f"{name} {ver}: cannot read the Hex tarball: {e}", file=sys.stderr)
+        return False
     dest = bundle / f"{name}-{ver}"
     found = False
     for m in inner.getmembers():
