@@ -43,24 +43,62 @@ pub fn optimise(
   case preference {
     ForceByte -> Ok([build_segment(Byte, text, 0)])
     Auto -> {
-      let greedy =
-        util.characters(text)
-        |> greedy_segments(0, [], None)
-        |> normalise_segments
+      let optimal =
+        optimal_segments(util.characters(text), fn(m) {
+          { 4 + mode.char_count_bits(m, version) } * 6
+        })
       let single_byte = [build_segment(Byte, text, 0)]
-      // Greedy segmentation can be worse than encoding everything as Byte for
-      // mixed payloads (vCard, JSON, etc.) because every mode switch costs
-      // 4 bits + a character-count indicator. Compare the two and keep the
-      // cheaper option.
+      // The search below weighs Numeric and Alphanumeric characters by their
+      // average bit cost, so at segment boundaries it can be a few bits off
+      // the exact length. Keep whole-payload Byte when that is shorter.
       case
-        encoded_bits(greedy, version, None)
+        encoded_bits(optimal, version, None)
         <= encoded_bits(single_byte, version, None)
       {
-        True -> Ok(greedy)
+        True -> Ok(optimal)
         False -> Ok(single_byte)
       }
     }
   }
+}
+
+/// Split `text` into the segments with the fewest bits for a symbol whose
+/// segment header (mode indicator plus character count) takes
+/// `header_bits(mode)` bits, or `Error(Nil)` for a mode the symbol cannot use.
+/// Returns `Error(Nil)` when some character fits none of the usable modes.
+/// Used by Micro QR and rMQR, whose headers differ from Standard QR's.
+pub fn split(
+  text: String,
+  header_bits: fn(Mode) -> Result(Int, Nil),
+) -> Result(List(Segment), Nil) {
+  let segments =
+    optimal_segments(util.characters(text), fn(m) {
+      case header_bits(m) {
+        Ok(bits) -> bits * 6
+        Error(Nil) -> unreachable
+      }
+    })
+  case
+    list.all(segments, fn(segment) {
+      header_bits(mode(segment)) != Error(Nil)
+      && list.all(util.characters(data(segment)), fn(char) {
+        char_cost(char, mode(segment)) < unreachable
+      })
+    })
+  {
+    True -> Ok(segments)
+    False -> Error(Nil)
+  }
+}
+
+/// A single segment carrying all of `text` in `segment_mode`.
+pub fn single(text: String, segment_mode: Mode) -> Segment {
+  build_segment(segment_mode, text, 0)
+}
+
+/// Index of the segment's first character in the whole payload.
+pub fn index(segment: Segment) -> Int {
+  segment_index(segment)
 }
 
 pub fn encoded_bits(
@@ -95,116 +133,154 @@ pub fn append_to_stream(
   }
 }
 
-fn greedy_segments(
+// Costs are in sixths of a bit so that Numeric (10 bits per 3 digits) and
+// Alphanumeric (11 bits per 2 characters) stay integral.
+const unreachable: Int = 1_000_000_000
+
+const modes: List(Mode) = [Numeric, Alphanumeric, Byte, Kanji]
+
+/// Split `chars` into the segments with the fewest bits at `version`
+/// (ISO/IEC 18004 Annex J; the same dynamic programme as Nayuki's and
+/// shogo82148/qrcode's encoders). For every character and every mode it
+/// keeps the cheapest encoding of the prefix that ends in that mode, where
+/// switching mode costs the 4-bit mode indicator plus the character count.
+fn optimal_segments(
   chars: List(String),
-  index: Int,
-  acc: List(Segment),
-  current: Option(#(Mode, String, Int)),
+  header: fn(Mode) -> Int,
 ) -> List(Segment) {
   case chars {
-    [] ->
-      case current {
-        Some(#(current_mode, current_text, start)) ->
-          list.reverse([build_segment(current_mode, current_text, start), ..acc])
-        None -> list.reverse(acc)
-      }
-    [char, ..rest] -> {
-      let next_mode = classify_char(char)
-      case current {
-        Some(#(current_mode, current_text, start))
-          if current_mode == next_mode
-        ->
-          greedy_segments(
-            rest,
-            index + 1,
-            acc,
-            Some(#(current_mode, current_text <> char, start)),
-          )
-        Some(#(current_mode, current_text, start)) ->
-          greedy_segments(
-            rest,
-            index + 1,
-            [build_segment(current_mode, current_text, start), ..acc],
-            Some(#(next_mode, char, index)),
-          )
-        None ->
-          greedy_segments(rest, index + 1, acc, Some(#(next_mode, char, index)))
-      }
+    [] -> []
+    [first, ..rest] -> {
+      let start = list.map(modes, fn(m) { add(header(m), char_cost(first, m)) })
+      let #(costs, back) =
+        list.fold(rest, #(start, []), fn(state, char) {
+          let #(previous, back) = state
+          let step =
+            list.map(modes, fn(m) {
+              let #(from, cost) = cheapest_entry(previous, m, header)
+              #(add(cost, char_cost(char, m)), from)
+            })
+          #(list.map(step, fn(entry) { entry.0 }), [
+            list.map(step, fn(entry) { entry.1 }),
+            ..back
+          ])
+        })
+      let #(last, _) = argmin(costs)
+      let char_modes = trace_back(back, last, [last])
+      group_segments(list.zip(chars, char_modes), 0, [], None)
     }
   }
 }
 
-fn normalise_segments(segments: List(Segment)) -> List(Segment) {
-  segments
-  |> merge_numeric_with_alphanumeric
-  |> merge_adjacent_same_mode
+/// The cheapest way to be in `target` after the previous character: either
+/// stay in `target` or switch into it from another mode.
+fn cheapest_entry(
+  previous: List(Int),
+  target: Mode,
+  header: fn(Mode) -> Int,
+) -> #(Mode, Int) {
+  list.zip(modes, previous)
+  |> list.map(fn(entry) {
+    let #(from, cost) = entry
+    case from == target {
+      True -> #(from, cost)
+      False -> #(from, add(cost, header(target)))
+    }
+  })
+  |> list.fold(#(target, unreachable), fn(best, entry) {
+    case entry.1 < best.1 {
+      True -> entry
+      False -> best
+    }
+  })
 }
 
-fn merge_numeric_with_alphanumeric(segments: List(Segment)) -> List(Segment) {
-  case segments {
-    [first, second, ..rest] ->
-      case promote_pair(first, second) {
-        Some(merged) -> merge_numeric_with_alphanumeric([merged, ..rest])
-        None -> [first, ..merge_numeric_with_alphanumeric([second, ..rest])]
+fn argmin(costs: List(Int)) -> #(Mode, Int) {
+  list.zip(modes, costs)
+  |> list.fold(#(Byte, unreachable), fn(best, entry) {
+    case entry.1 < best.1 {
+      True -> entry
+      False -> best
+    }
+  })
+}
+
+/// `back` holds, newest first, the mode each mode was entered from at every
+/// character after the first. Walk it to recover every character's mode.
+fn trace_back(
+  back: List(List(Mode)),
+  current: Mode,
+  acc: List(Mode),
+) -> List(Mode) {
+  case back {
+    [] -> acc
+    [froms, ..rest] -> {
+      let previous =
+        list.zip(modes, froms)
+        |> list.key_find(current)
+        |> result_or(current)
+      trace_back(rest, previous, [previous, ..acc])
+    }
+  }
+}
+
+fn result_or(result: Result(a, Nil), default: a) -> a {
+  case result {
+    Ok(value) -> value
+    Error(Nil) -> default
+  }
+}
+
+fn group_segments(
+  chars: List(#(String, Mode)),
+  index: Int,
+  acc: List(Segment),
+  current: Option(#(Mode, String, Int)),
+) -> List(Segment) {
+  case chars, current {
+    [], None -> list.reverse(acc)
+    [], Some(#(m, text, start)) ->
+      list.reverse([build_segment(m, text, start), ..acc])
+    [#(char, m), ..rest], Some(#(current_mode, text, start))
+      if m == current_mode
+    -> group_segments(rest, index + 1, acc, Some(#(m, text <> char, start)))
+    [#(char, m), ..rest], Some(#(current_mode, text, start)) ->
+      group_segments(
+        rest,
+        index + 1,
+        [build_segment(current_mode, text, start), ..acc],
+        Some(#(m, char, index)),
+      )
+    [#(char, m), ..rest], None ->
+      group_segments(rest, index + 1, acc, Some(#(m, char, index)))
+  }
+}
+
+fn char_cost(char: String, m: Mode) -> Int {
+  case m {
+    Numeric ->
+      case mode.is_numeric_char(char) {
+        True -> 20
+        False -> unreachable
       }
-    _ -> segments
-  }
-}
-
-fn promote_pair(first: Segment, second: Segment) -> Option(Segment) {
-  let first_mode = mode(first)
-  let second_mode = mode(second)
-  case is_alnum_family(first_mode) && is_alnum_family(second_mode) {
-    True ->
-      Some(build_segment(
-        Alphanumeric,
-        data(first) <> data(second),
-        segment_index(first),
-      ))
-    False -> None
-  }
-}
-
-fn merge_adjacent_same_mode(segments: List(Segment)) -> List(Segment) {
-  case segments {
-    [first, second, ..rest] ->
-      case mode(first) == mode(second) {
-        True ->
-          merge_adjacent_same_mode([
-            build_segment(
-              mode(first),
-              data(first) <> data(second),
-              segment_index(first),
-            ),
-            ..rest
-          ])
-        False -> [first, ..merge_adjacent_same_mode([second, ..rest])]
-      }
-    [first, ..rest] -> [first, ..merge_adjacent_same_mode(rest)]
-    [] -> []
-  }
-}
-
-fn classify_char(char: String) -> Mode {
-  case mode.is_numeric_char(char) {
-    True -> Numeric
-    False ->
+    Alphanumeric ->
       case mode.is_alphanumeric_char(char) {
-        True -> Alphanumeric
-        False ->
-          case mode.is_kanji_char(char) {
-            True -> Kanji
-            False -> Byte
-          }
+        True -> 33
+        False -> unreachable
+      }
+    Byte -> mode.utf8_byte_length(char) * 48
+    Kanji ->
+      case mode.is_kanji_char(char) {
+        True -> 78
+        False -> unreachable
       }
   }
 }
 
-fn is_alnum_family(value: Mode) -> Bool {
-  case value {
-    Numeric -> True
-    Alphanumeric -> True
-    _ -> False
+fn add(left: Int, right: Int) -> Int {
+  case left >= unreachable || right >= unreachable {
+    True -> unreachable
+    False -> left + right
   }
 }
 

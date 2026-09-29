@@ -3,9 +3,11 @@
 import gleam/bit_array
 import gleam/int
 import gleam/list
+import gleam/order
 import gleam/string
 import qrkit/error.{type EncodeError, UnsupportedCharacter}
 import qrkit/internal/bitstream
+import qrkit/internal/kanji_table
 import qrkit/internal/util
 import qrkit/types.{type Mode, Alphanumeric, Byte, Kanji, Numeric}
 
@@ -86,6 +88,33 @@ pub fn is_alphanumeric_char(char: String) -> Bool {
 
 pub fn is_kanji_char(char: String) -> Bool {
   char |> to_sjis |> is_ok
+}
+
+/// The narrowest mode that can encode `char` on its own.
+pub fn classify(char: String) -> Mode {
+  case is_numeric_char(char), is_alphanumeric_char(char), is_kanji_char(char) {
+    True, _, _ -> Numeric
+    _, True, _ -> Alphanumeric
+    _, _, True -> Kanji
+    _, _, _ -> Byte
+  }
+}
+
+/// The narrowest single mode that can encode every character of `chars`,
+/// for symbols that carry one segment (Micro QR and rMQR). Numeric widens to
+/// Alphanumeric; any other mix, including Kanji with ASCII, needs Byte.
+pub fn uniform(chars: List(String)) -> Mode {
+  case chars {
+    [] -> Numeric
+    [first, ..rest] ->
+      list.fold(rest, classify(first), fn(current, char) {
+        case current, classify(char) {
+          current, next if current == next -> current
+          Numeric, Alphanumeric | Alphanumeric, Numeric -> Alphanumeric
+          _, _ -> Byte
+        }
+      })
+  }
 }
 
 pub fn encode(
@@ -278,43 +307,25 @@ fn to_sjis(char: String) -> Result(Int, Nil) {
   }
 }
 
+/// Binary search the JIS X 0208 table for `codepoint`'s Shift JIS value.
 fn codepoint_to_sjis(codepoint: Int) -> Result(Int, Nil) {
-  case codepoint >= 0x3041 && codepoint <= 0x3093 {
-    True -> Ok(0x829F + codepoint - 0x3041)
-    False ->
-      case codepoint >= 0x30A1 && codepoint <= 0x30F6 {
-        True -> Ok(katakana_sjis(codepoint))
-        False ->
-          case codepoint >= 0xFF10 && codepoint <= 0xFF19 {
-            True -> Ok(0x824F + codepoint - 0xFF10)
-            False ->
-              case codepoint >= 0xFF21 && codepoint <= 0xFF3A {
-                True -> Ok(0x8260 + codepoint - 0xFF21)
-                False ->
-                  case codepoint >= 0xFF41 && codepoint <= 0xFF5A {
-                    True -> Ok(0x8281 + codepoint - 0xFF41)
-                    False -> punctuation_sjis(codepoint)
-                  }
-              }
+  search_sjis(codepoint, 0, kanji_table.entry_count - 1)
+}
+
+fn search_sjis(codepoint: Int, low: Int, high: Int) -> Result(Int, Nil) {
+  case low > high {
+    True -> Error(Nil)
+    False -> {
+      let middle = { low + high } / 2
+      case bit_array.slice(kanji_table.entries, at: middle * 4, take: 4) {
+        Ok(<<entry:16, sjis:16>>) ->
+          case int.compare(codepoint, entry) {
+            order.Eq -> Ok(sjis)
+            order.Lt -> search_sjis(codepoint, low, middle - 1)
+            order.Gt -> search_sjis(codepoint, middle + 1, high)
           }
+        _ -> Error(Nil)
       }
-  }
-}
-
-fn katakana_sjis(codepoint: Int) -> Int {
-  let offset = codepoint - 0x30A1
-  case offset >= 63 {
-    True -> 0x8340 + offset + 1
-    False -> 0x8340 + offset
-  }
-}
-
-fn punctuation_sjis(codepoint: Int) -> Result(Int, Nil) {
-  case codepoint {
-    0x3000 -> Ok(0x8140)
-    0x3001 -> Ok(0x8141)
-    0x3002 -> Ok(0x8142)
-    0x30FC -> Ok(0x815B)
-    _ -> Error(Nil)
+    }
   }
 }

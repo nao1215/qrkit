@@ -131,25 +131,25 @@ pub fn main() {
 Running the snippet above prints (the leading / trailing blank lines are the 4-module quiet zone QR readers need):
 
 ```
-
-
-    █▀▀▀▀▀█  ███▀  ▀▀█▀▀█ █▀▀▀▀▀█
-    █ ███ █ █ █▀▀ ▀ ▀▄▀█▀ █ ███ █
-    █ ▀▀▀ █ █▄▄▄████▄▄▄▀▀ █ ▀▀▀ █
-    ▀▀▀▀▀▀▀ █▄▀ ▀▄▀▄█ ▀ ▀ ▀▀▀▀▀▀▀
-    █ █▀██▀▄▄█▄█▀ ▀▀▀█▄▄█ ███▀▀ ▄
-    █ ▀ ▀▄▀█▀█▄▀█ ▄█▀▀ ▄▀   ▀▄ ▄
-     ▄▄▄▀▀▀▀▄▄  ▄▄▄▀▀▀ ▄█▄▄▄▄▀▀ ▄
-    ▄ ▄█▀▄▀██▄▄█▄█▀▀ ▀█▄██▄▄█▀▀▄
-    ▄ ▀██ ▀ ▀▄▄ ▀ ▀▀▀▀ █ █▄█▄▀█ ▄
-    █ ▄█▄ ▀  ▀▀█  ▄█▀▀▀ █▄█▀▀ ▀▄
-    ▀    ▀▀ ▄ ▀█▄▄▄▀▀██▀█▀▀▀█▄███
-    █▀▀▀▀▀█ ▄▄ ███▀▀█▀ ██ ▀ █▀▀ ▄
-    █ ███ █ █▀ █▀▄▀ ▄█▄▄█▀▀▀▀▄██▄
-    █ ▀▀▀ █ ▀▄█▄▄▀▀█▀▀▄▀██▀█▀█▀█
-    ▀▀▀▀▀▀▀ ▀▀▀ ▀▀ ▀ ▀ ▀  ▀▀▀ ▀
-
-
+                                     
+                                     
+    █▀▀▀▀▀█ ▄ ▀ █▄▀  ▀██▄ █▀▀▀▀▀█    
+    █ ███ █  █▄▀█▄ ▀  █▀  █ ███ █    
+    █ ▀▀▀ █ ▀█ ▀▄▀▄▄▀  █  █ ▀▀▀ █    
+    ▀▀▀▀▀▀▀ ▀ ▀ █ ▀▄▀▄█▄▀ ▀▀▀▀▀▀▀    
+    █▄▀▄▀▄▀▄ █▀▀▀▄ ▄▄▀  ▄ ▄ ▀▄ ▀▄    
+    █▄▄ ▄ ▀█  ▀▀█▄█▄ █▄  ▀▀▄█ ▀█▀    
+    ▄▄▀▀  ▀█ ▄▄ █ █▀▄█▄ ▄██  █ ▀█    
+     ▄█▀▄▄▀ ▀▀▀▀ ▀ ▄▀█▀ ▄▄█ ▀█ █▀    
+    ▀▀▀▄▄▀▀ ▄▀█▀ ▄ ▄ █▄▀▀▄█▀ █▄▀█    
+    ▀▄▀▀▄█▀▀ ▀▀ ▄▄█▄▀██▄▄█▄██▄ █▀    
+    ▀  ▀▀▀▀ █▀▀▀  █▄ ▀▀██▀▀▀█ ▄▄▄    
+    █▀▀▀▀▀█  ██▀▄▀  ▄█▄▀█ ▀ ██ ▀█    
+    █ ███ █ ▀▀█▀█▄ ▀█▀  █▀▀██ ▄▀     
+    █ ▀▀▀ █ ▀█▄▄█  ▄ █ █▄▄ ▀█▀ ▄▀    
+    ▀▀▀▀▀▀▀ ▀   ▀ ▀ ▀▀ ▀▀▀ ▀▀  ▀▀    
+                                     
+                                     
 ```
 
 This block is scannable directly from the terminal screen with a phone camera — the QR decodes to https://github.com/sponsors/nao1215. For dark-themed terminals call `ascii.with_inverse(qr)` instead, and for double-width pixels use `ascii.to_string(qr)`.
@@ -367,7 +367,7 @@ Full API reference: <https://hexdocs.pm/qrkit/>.
 ## Scope and non-goals
 
 - qrkit is an **encoder only**. Image parsing and QR decoding are out of scope.
-- Kanji segmentation uses a focused Shift-JIS subset (hiragana, katakana, full-width ASCII, basic punctuation). Codepoints outside that subset fall back to Byte mode, which is still spec-valid but slightly larger.
+- Kanji mode covers the characters of JIS X 0208. Characters outside it (CP932 extensions such as circled digits, and JIS X 0213 additions) are encoded in Byte mode as UTF-8.
 - Model 1 QR (the pre-1997 specification) is not implemented; only Model 2 (ISO/IEC 18004:2015), Micro QR, and rMQR.
 - The encoder does not normalise input (no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL-truncation). Whatever string you pass is the exact byte sequence that lands in the symbol's Byte segment.
 - A QR that encodes successfully is not guaranteed to scan in every environment. Real-world readability also depends on the quiet zone, contrast, module size, rendering or print scale, the output medium, and the scanner implementation. Test the chosen output against the target devices before deployment.

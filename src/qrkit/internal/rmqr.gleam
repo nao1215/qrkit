@@ -13,6 +13,7 @@ import qrkit/internal/bitstream
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
+import qrkit/internal/segment
 import qrkit/internal/util
 import qrkit/types.{
   type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte, High,
@@ -77,6 +78,20 @@ const total_codewords_table: List(Int) = [
   85, 113, 166, 51, 74, 103, 136, 199, 61, 88, 122, 160, 232,
 ]
 
+// Error-correction block counts per version, ISO/IEC 23941:2022 Table 8.
+// Every block of a symbol has the same number of error-correction codewords;
+// when the data does not divide evenly the later blocks take one extra data
+// codeword (see `reed_solomon.encode_interleaved`).
+const ec_blocks_m: List(Int) = [
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 2, 1, 1, 1, 2, 2, 3, 1, 1, 2, 2,
+  3, 1, 2, 2, 3, 4,
+]
+
+const ec_blocks_h: List(Int) = [
+  1, 1, 1, 1, 2, 1, 1, 2, 2, 3, 1, 1, 2, 2, 2, 3, 1, 1, 2, 2, 3, 4, 2, 2, 3, 4,
+  5, 2, 2, 3, 4, 6,
+]
+
 const numeric_cci: List(Int) = [
   4, 5, 6, 7, 7, 5, 6, 7, 7, 8, 4, 6, 7, 7, 8, 8, 5, 6, 7, 7, 8, 8, 7, 7, 8, 8,
   9, 7, 8, 8, 8, 9,
@@ -139,14 +154,13 @@ pub fn encode(
   preference: ModePreference,
 ) -> Result(Encoded, EncodeError) {
   use _ <- result_try(validate_ecc(ecc))
-  use selected_mode <- result_try(select_mode(text, preference))
-  use chosen <- result_try(resolve_version(
+  use #(chosen, segments) <- result_try(resolve_version(
     text,
-    selected_mode,
     ecc,
     requested_version,
+    preference,
   ))
-  use codewords <- result_try(create_codewords(text, selected_mode, ecc, chosen))
+  use codewords <- result_try(create_codewords(segments, ecc, chosen))
   let h_size = lookup_int(widths, chosen)
   let v_size = lookup_int(heights, chosen)
   let total = lookup_int(total_codewords_table, chosen)
@@ -156,33 +170,63 @@ pub fn encode(
 
 fn resolve_version(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
   requested_version: Option(Int),
-) -> Result(Int, EncodeError) {
+  preference: ModePreference,
+) -> Result(#(Int, List(segment.Segment)), EncodeError) {
   case requested_version {
-    None -> find_version(text, selected_mode, ecc, 0)
+    None -> find_version(text, ecc, preference, 0)
     Some(value) ->
       case value < 1 || value > total_versions {
         True -> Error(InvalidVersion(value))
-        False -> check_version(text, selected_mode, ecc, value - 1)
+        False -> check_version(text, ecc, preference, value - 1)
       }
   }
 }
 
 fn check_version(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
+  preference: ModePreference,
   candidate: Int,
-) -> Result(Int, EncodeError) {
-  let count_bits = lookup_cci(selected_mode, candidate)
-  let data_bits = 3 + count_bits + mode.data_bits_length(text, selected_mode)
+) -> Result(#(Int, List(segment.Segment)), EncodeError) {
+  let segments = segments_at(text, preference, candidate)
+  let data_bits = segments_bits(segments, candidate)
   let capacity = data_capacity_bits(candidate, ecc)
   case data_bits <= capacity {
-    True -> Ok(candidate)
+    True -> Ok(#(candidate, segments))
     False -> Error(DataExceedsCapacity(data_bits, capacity))
   }
+}
+
+/// The shortest segmentation of `text` for the version at `index`: one Byte
+/// segment for `ForceByte`, otherwise Numeric / Alphanumeric / Byte / Kanji
+/// runs, keeping a single segment when that is not longer.
+fn segments_at(
+  text: String,
+  preference: ModePreference,
+  index: Int,
+) -> List(segment.Segment) {
+  case preference {
+    types.ForceByte -> [segment.single(text, Byte)]
+    types.Auto -> {
+      let one = [segment.single(text, mode.uniform(util.characters(text)))]
+      case segment.split(text, fn(m) { Ok(3 + lookup_cci(m, index)) }) {
+        Ok(split) ->
+          case segments_bits(one, index) <= segments_bits(split, index) {
+            True -> one
+            False -> split
+          }
+        Error(Nil) -> one
+      }
+    }
+  }
+}
+
+fn segments_bits(segments: List(segment.Segment), index: Int) -> Int {
+  list.fold(segments, 0, fn(acc, seg) {
+    acc + 3 + lookup_cci(segment.mode(seg), index) + segment.bits(seg)
+  })
 }
 
 /// Return `#(width, height)` for a 0-based rMQR version index.
@@ -203,68 +247,19 @@ fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   }
 }
 
-fn select_mode(
-  text: String,
-  preference: ModePreference,
-) -> Result(Mode, EncodeError) {
-  case preference {
-    types.ForceByte -> Ok(Byte)
-    types.Auto -> Ok(uniform_mode(util.characters(text), Numeric))
-  }
-}
-
-fn uniform_mode(chars: List(String), best: Mode) -> Mode {
-  case chars {
-    [] -> best
-    [char, ..rest] -> uniform_mode(rest, refine_mode(best, classify_char(char)))
-  }
-}
-
-fn classify_char(char: String) -> Mode {
-  case mode.is_numeric_char(char) {
-    True -> Numeric
-    False ->
-      case mode.is_alphanumeric_char(char) {
-        True -> Alphanumeric
-        False ->
-          case mode.is_kanji_char(char) {
-            True -> Kanji
-            False -> Byte
-          }
-      }
-  }
-}
-
-fn refine_mode(current: Mode, next: Mode) -> Mode {
-  case current, next {
-    Byte, _ -> Byte
-    _, Byte -> Byte
-    Kanji, _ -> Byte
-    _, Kanji -> Byte
-    Alphanumeric, Numeric -> Alphanumeric
-    Numeric, Alphanumeric -> Alphanumeric
-    _, _ -> next
-  }
-}
-
 fn find_version(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
+  preference: ModePreference,
   candidate: Int,
-) -> Result(Int, EncodeError) {
+) -> Result(#(Int, List(segment.Segment)), EncodeError) {
   case candidate >= total_versions {
-    True -> Error(no_version_fits_error(text, selected_mode, ecc))
-    False -> {
-      let count_bits = lookup_cci(selected_mode, candidate)
-      let data_bits =
-        3 + count_bits + mode.data_bits_length(text, selected_mode)
-      let capacity = data_capacity_bits(candidate, ecc)
-      case data_bits <= capacity {
-        True -> Ok(candidate)
-        False -> find_version(text, selected_mode, ecc, candidate + 1)
+    True -> Error(no_version_fits_error(text, ecc, preference))
+    False ->
+      case check_version(text, ecc, preference, candidate) {
+        Ok(found) -> Ok(found)
+        Error(_) -> find_version(text, ecc, preference, candidate + 1)
       }
-    }
   }
 }
 
@@ -274,12 +269,12 @@ fn find_version(
 /// limit the input is — see #22 for why `(0, 0)` was useless.
 fn no_version_fits_error(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
+  preference: ModePreference,
 ) -> EncodeError {
   let largest = total_versions - 1
-  let count_bits = lookup_cci(selected_mode, largest)
-  let bits_needed = 3 + count_bits + mode.data_bits_length(text, selected_mode)
+  let bits_needed =
+    segments_bits(segments_at(text, preference, largest), largest)
   let bits_available = data_capacity_bits(largest, ecc)
   DataExceedsCapacity(bits_needed, bits_available)
 }
@@ -292,6 +287,13 @@ fn data_codewords(index: Int, ecc: ErrorCorrection) -> Int {
   case ecc {
     High -> lookup_int(data_codewords_h, index)
     _ -> lookup_int(data_codewords_m, index)
+  }
+}
+
+fn ec_block_count(index: Int, ecc: ErrorCorrection) -> Int {
+  case ecc {
+    High -> lookup_int(ec_blocks_h, index)
+    _ -> lookup_int(ec_blocks_m, index)
   }
 }
 
@@ -318,31 +320,40 @@ fn mode_indicator(selected_mode: Mode) -> Int {
 }
 
 fn create_codewords(
-  text: String,
-  selected_mode: Mode,
+  segments: List(segment.Segment),
   ecc: ErrorCorrection,
   index: Int,
 ) -> Result(List(Int), EncodeError) {
-  let count_bits = lookup_cci(selected_mode, index)
-  let count_value = mode.character_count(text, selected_mode)
-  use payload <- result_try(mode.encode(text, selected_mode, at_index: 0))
   let capacity = data_capacity_bits(index, ecc)
-  let stream =
-    bitstream.new()
-    |> bitstream.append_bits(mode_indicator(selected_mode), size: 3)
-    |> bitstream.append_bits(count_value, size: count_bits)
-    |> bitstream.append_bytes(payload)
-    |> append_terminator(capacity)
+  use stream <- result_try(
+    list.try_fold(segments, bitstream.new(), fn(stream, seg) {
+      use payload <- result_try(mode.encode(
+        segment.data(seg),
+        segment.mode(seg),
+        at_index: segment.index(seg),
+      ))
+      Ok(
+        stream
+        |> bitstream.append_bits(mode_indicator(segment.mode(seg)), size: 3)
+        |> bitstream.append_bits(
+          segment.count(seg),
+          size: lookup_cci(segment.mode(seg), index),
+        )
+        |> bitstream.append_bytes(payload),
+      )
+    }),
+  )
+  let stream = append_terminator(stream, capacity)
   case bitstream.length_bits(stream) > capacity {
     True -> Error(DataExceedsCapacity(bitstream.length_bits(stream), capacity))
     False -> {
       let aligned = bitstream.pad_to_byte_boundary(stream)
       let padded = pad_to_data(aligned, data_codewords(index, ecc))
-      let data_bytes = bitstream.to_byte_list(padded)
-      let total = lookup_int(total_codewords_table, index)
-      let ec_count = total - data_codewords(index, ecc)
-      let ec_bytes = reed_solomon.encode(data_bytes, ec_count)
-      Ok(list.append(data_bytes, ec_bytes))
+      Ok(reed_solomon.encode_interleaved(
+        bitstream.to_byte_list(padded),
+        total_codewords: lookup_int(total_codewords_table, index),
+        blocks: ec_block_count(index, ecc),
+      ))
     }
   }
 }

@@ -13,6 +13,7 @@ import qrkit/internal/bitstream
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
+import qrkit/internal/segment
 import qrkit/internal/util
 import qrkit/types.{
   type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte,
@@ -85,19 +86,13 @@ pub fn encode(
 ) -> Result(Encoded, EncodeError) {
   use _ <- result_try(validate_requested(requested_version))
   use _ <- result_try(validate_ecc(ecc))
-  use selected_mode <- result_try(select_mode(text, preference))
-  use chosen_version <- result_try(resolve_version(
+  use #(chosen_version, segments) <- result_try(resolve_version(
     text,
-    selected_mode,
     ecc,
     requested_version,
+    preference,
   ))
-  use codewords <- result_try(create_codewords(
-    text,
-    selected_mode,
-    ecc,
-    chosen_version,
-  ))
+  use codewords <- result_try(create_codewords(segments, ecc, chosen_version))
   case build_matrix(chosen_version, ecc, codewords) {
     Ok(#(best_mask, final_matrix)) ->
       Ok(Encoded(
@@ -120,58 +115,101 @@ fn validate_requested(
   }
 }
 
-/// Resolve the version the encoder should use.
+/// Resolve the version the encoder should use, with the segments measured
+/// for it (the mode indicator and character counts widen with the version).
 ///
 /// - When `requested_version` is `None`, walk versions from `min_version`
 ///   upward and pick the first that fits the payload (the historical
 ///   "smallest fit" behaviour).
 /// - When `requested_version` is `Some(N)`, use N as a strict floor: if N
-///   cannot encode the mode, support the ECC level, or hold the payload,
-///   return a typed `Error` instead of silently promoting to N+1.
+///   cannot encode the characters, support the ECC level, or hold the
+///   payload, return a typed `Error` instead of silently promoting to N+1.
 fn resolve_version(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
   requested_version: Option(Int),
-) -> Result(Int, EncodeError) {
+  preference: ModePreference,
+) -> Result(#(Int, List(segment.Segment)), EncodeError) {
   case requested_version {
-    None -> do_find_version(text, selected_mode, ecc, min_version)
-    Some(n) -> check_version(text, selected_mode, ecc, n)
+    None -> do_find_version(text, ecc, preference, min_version)
+    Some(n) -> check_version(text, ecc, preference, n)
   }
 }
 
 /// Confirm a single, caller-requested Micro QR version. Returns the version
-/// when mode + ECC + capacity all check out; otherwise surfaces the precise
-/// `EncodeError` that explains the mismatch.
+/// and its segments when modes + ECC + capacity all check out; otherwise
+/// surfaces the precise `EncodeError` that explains the mismatch.
 fn check_version(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
+  preference: ModePreference,
   candidate: Int,
-) -> Result(Int, EncodeError) {
-  case mode_supported(selected_mode, candidate) {
+) -> Result(#(Int, List(segment.Segment)), EncodeError) {
+  use segments <- result_try(segments_at(text, preference, candidate))
+  use capacity <- result_try(data_capacity_bits(candidate, ecc))
+  let required = segments_bits(segments, candidate)
+  case required <= capacity {
+    True -> Ok(#(candidate, segments))
+    False -> Error(DataExceedsCapacity(required, capacity))
+  }
+}
+
+/// The shortest segmentation of `text` at `version`. `ForceByte` keeps one
+/// Byte segment. `Auto` splits into Numeric / Alphanumeric / Byte / Kanji
+/// runs where the version allows those modes (M1 is Numeric only, M2 adds
+/// Alphanumeric), and keeps a single segment when that is not longer.
+fn segments_at(
+  text: String,
+  preference: ModePreference,
+  version: Int,
+) -> Result(List(segment.Segment), EncodeError) {
+  let single_mode = case preference {
+    types.ForceByte -> Byte
+    types.Auto -> mode.uniform(util.characters(text))
+  }
+  let single = case mode_supported(single_mode, version) {
+    True -> Ok([segment.single(text, single_mode)])
     False ->
       Error(IncompatibleOptions(
         "Micro QR M"
-        <> int_to_str(candidate)
+        <> int_to_str(version)
         <> " does not support the "
-        <> mode_name(selected_mode)
+        <> mode_name(single_mode)
         <> " mode",
       ))
-    True ->
-      case data_capacity_bits(candidate, ecc) {
-        Error(error) -> Error(error)
-        Ok(capacity) ->
-          case encoded_bits(text, selected_mode, candidate) {
-            Error(error) -> Error(error)
-            Ok(required) ->
-              case required <= capacity {
-                True -> Ok(candidate)
-                False -> Error(DataExceedsCapacity(required, capacity))
-              }
+  }
+  case preference {
+    types.ForceByte -> single
+    types.Auto ->
+      case segment.split(text, header_bits(version)), single {
+        Error(Nil), _ -> single
+        Ok(split), Ok(one) ->
+          case segments_bits(one, version) <= segments_bits(split, version) {
+            True -> Ok(one)
+            False -> Ok(split)
           }
+        Ok(split), Error(_) -> Ok(split)
       }
   }
+}
+
+fn header_bits(version: Int) -> fn(Mode) -> Result(Int, Nil) {
+  fn(segment_mode) {
+    case char_count_bits_for_mode(segment_mode, version) {
+      Ok(count_bits) -> Ok(mode_indicator_bits(version) + count_bits)
+      Error(_) -> Error(Nil)
+    }
+  }
+}
+
+fn segments_bits(segments: List(segment.Segment), version: Int) -> Int {
+  list.fold(segments, 0, fn(acc, seg) {
+    let count_bits = case char_count_bits_for_mode(segment.mode(seg), version) {
+      Ok(value) -> value
+      Error(_) -> 0
+    }
+    acc + mode_indicator_bits(version) + count_bits + segment.bits(seg)
+  })
 }
 
 fn mode_name(selected_mode: Mode) -> String {
@@ -254,79 +292,19 @@ fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   }
 }
 
-fn select_mode(
-  text: String,
-  preference: ModePreference,
-) -> Result(Mode, EncodeError) {
-  case preference {
-    types.ForceByte -> Ok(Byte)
-    types.Auto -> Ok(detect_uniform_mode(util.characters(text), Numeric))
-  }
-}
-
-fn detect_uniform_mode(chars: List(String), best: Mode) -> Mode {
-  case chars {
-    [] -> best
-    [char, ..rest] ->
-      detect_uniform_mode(rest, refine_mode(best, classify_char(char)))
-  }
-}
-
-fn classify_char(char: String) -> Mode {
-  case mode.is_numeric_char(char) {
-    True -> Numeric
-    False ->
-      case mode.is_alphanumeric_char(char) {
-        True -> Alphanumeric
-        False ->
-          case mode.is_kanji_char(char) {
-            True -> Kanji
-            False -> Byte
-          }
-      }
-  }
-}
-
-fn refine_mode(current: Mode, next: Mode) -> Mode {
-  case current, next {
-    Byte, _ -> Byte
-    _, Byte -> Byte
-    Kanji, _ -> Byte
-    _, Kanji -> Byte
-    Alphanumeric, Numeric -> Alphanumeric
-    Numeric, Alphanumeric -> Alphanumeric
-    _, _ -> next
-  }
-}
-
 fn do_find_version(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
+  preference: ModePreference,
   candidate: Int,
-) -> Result(Int, EncodeError) {
+) -> Result(#(Int, List(segment.Segment)), EncodeError) {
   case candidate > max_version {
-    True -> Error(no_version_fits_error(text, selected_mode, ecc))
-    False -> {
-      case mode_supported(selected_mode, candidate) {
-        False -> do_find_version(text, selected_mode, ecc, candidate + 1)
-        True ->
-          case data_capacity_bits(candidate, ecc) {
-            Error(_) -> do_find_version(text, selected_mode, ecc, candidate + 1)
-            Ok(capacity) ->
-              case encoded_bits(text, selected_mode, candidate) {
-                Error(_) ->
-                  do_find_version(text, selected_mode, ecc, candidate + 1)
-                Ok(required) ->
-                  case required <= capacity {
-                    True -> Ok(candidate)
-                    False ->
-                      do_find_version(text, selected_mode, ecc, candidate + 1)
-                  }
-              }
-          }
+    True -> Error(no_version_fits_error(text, ecc, preference))
+    False ->
+      case check_version(text, ecc, preference, candidate) {
+        Ok(found) -> Ok(found)
+        Error(_) -> do_find_version(text, ecc, preference, candidate + 1)
       }
-    }
   }
 }
 
@@ -337,40 +315,18 @@ fn do_find_version(
 /// #22 for why `(0, 0)` was useless.
 fn no_version_fits_error(
   text: String,
-  selected_mode: Mode,
   ecc: ErrorCorrection,
+  preference: ModePreference,
 ) -> EncodeError {
-  let bits_needed = case encoded_bits(text, selected_mode, max_version) {
-    Ok(value) -> value
-    Error(_) -> mode.data_bits_length(text, selected_mode)
+  let bits_needed = case segments_at(text, preference, max_version) {
+    Ok(segments) -> segments_bits(segments, max_version)
+    Error(_) -> mode.utf8_byte_length(text) * 8
   }
   let bits_available = case data_capacity_bits(max_version, ecc) {
     Ok(value) -> value
     Error(_) -> 0
   }
   DataExceedsCapacity(bits_needed, bits_available)
-}
-
-fn encoded_bits(
-  text: String,
-  selected_mode: Mode,
-  version: Int,
-) -> Result(Int, EncodeError) {
-  let mode_bits_count = mode_indicator_bits(version)
-  case mode_supported(selected_mode, version) {
-    False ->
-      Error(IncompatibleOptions(
-        "Mode not supported by Micro QR M" <> int_to_str(version),
-      ))
-    True ->
-      case char_count_bits_for_mode(selected_mode, version) {
-        Error(error) -> Error(error)
-        Ok(count_bits) -> {
-          let data_bits = mode.data_bits_length(text, selected_mode)
-          Ok(mode_bits_count + count_bits + data_bits)
-        }
-      }
-  }
 }
 
 fn mode_supported(selected_mode: Mode, version: Int) -> Bool {
@@ -420,20 +376,30 @@ fn char_count_bits_for_mode(
 }
 
 fn create_codewords(
-  text: String,
-  selected_mode: Mode,
+  segments: List(segment.Segment),
   ecc: ErrorCorrection,
   version: Int,
 ) -> Result(List(Int), EncodeError) {
   use capacity <- result_try(data_capacity_bits(version, ecc))
-  use count_bits <- result_try(char_count_bits_for_mode(selected_mode, version))
-  let count_value = mode.character_count(text, selected_mode)
-  use payload <- result_try(mode.encode(text, selected_mode, at_index: 0))
-  let stream =
-    bitstream.new()
-    |> append_mode_indicator(selected_mode, version)
-    |> bitstream.append_bits(count_value, size: count_bits)
-    |> bitstream.append_bytes(payload)
+  use stream <- result_try(
+    list.try_fold(segments, bitstream.new(), fn(stream, seg) {
+      use count_bits <- result_try(char_count_bits_for_mode(
+        segment.mode(seg),
+        version,
+      ))
+      use payload <- result_try(mode.encode(
+        segment.data(seg),
+        segment.mode(seg),
+        at_index: segment.index(seg),
+      ))
+      Ok(
+        stream
+        |> append_mode_indicator(segment.mode(seg), version)
+        |> bitstream.append_bits(segment.count(seg), size: count_bits)
+        |> bitstream.append_bytes(payload),
+      )
+    }),
+  )
   let total_bits = bitstream.length_bits(stream)
   case total_bits > capacity {
     True -> Error(DataExceedsCapacity(total_bits, capacity))

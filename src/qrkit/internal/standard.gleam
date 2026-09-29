@@ -2,6 +2,7 @@
 
 import gleam/bit_array
 import gleam/bool
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import qrkit/error.{type EncodeError, DataExceedsCapacity}
@@ -58,45 +59,97 @@ pub fn encode_prefixed(
   preference: ModePreference,
   prefix_bits: BitArray,
 ) -> Result(Encoded, EncodeError) {
-  case segment.optimise(text, min_version, preference) {
+  let prefix_length = bit_array.bit_size(prefix_bits)
+  case
+    choose_version(
+      text,
+      ecc,
+      version_ranges(min_version, max_version),
+      eci,
+      preference,
+      prefix_length,
+      None,
+    )
+  {
     Error(error) -> Error(error)
-    Ok(segments) -> {
-      let prefix_length = bit_array.bit_size(prefix_bits)
+    Ok(#(chosen_version, segments)) ->
       case
-        best_version_in_range(
-          prefix_length + segment.encoded_bits(segments, min_version, eci),
+        create_codewords_prefixed(
+          chosen_version,
           ecc,
-          min_version,
-          max_version,
+          segments,
+          eci,
+          prefix_bits,
         )
       {
         Error(error) -> Error(error)
-        Ok(chosen_version) ->
-          case
-            create_codewords_prefixed(
-              chosen_version,
-              ecc,
-              segments,
-              eci,
-              prefix_bits,
-            )
-          {
+        Ok(codewords) ->
+          case build_matrix(chosen_version, ecc, codewords) {
+            Ok(#(best_mask, final_matrix)) ->
+              Ok(Encoded(
+                chosen_version,
+                matrix.width(final_matrix),
+                matrix.height(final_matrix),
+                best_mask,
+                matrix.rows(final_matrix),
+              ))
             Error(error) -> Error(error)
-            Ok(codewords) ->
-              case build_matrix(chosen_version, ecc, codewords) {
-                Ok(#(best_mask, final_matrix)) ->
-                  Ok(Encoded(
-                    chosen_version,
-                    matrix.width(final_matrix),
-                    matrix.height(final_matrix),
-                    best_mask,
-                    matrix.rows(final_matrix),
-                  ))
-                Error(error) -> Error(error)
-              }
           }
       }
+  }
+}
+
+/// The character count indicator widens at versions 10 and 27, which changes
+/// both the cost of every segment header and which segmentation is shortest.
+/// Split `min_version..max_version` at those boundaries so each range is
+/// segmented and measured with the indicator widths it will be encoded with.
+fn version_ranges(min_version: Int, max_version: Int) -> List(#(Int, Int)) {
+  [#(1, 9), #(10, 26), #(27, 40)]
+  |> list.filter_map(fn(range) {
+    let lo = int.max(range.0, min_version)
+    let hi = int.min(range.1, max_version)
+    case lo <= hi {
+      True -> Ok(#(lo, hi))
+      False -> Error(Nil)
     }
+  })
+}
+
+/// Pick the smallest version in `ranges` that holds the payload, together
+/// with the segmentation measured for that version's range.
+fn choose_version(
+  text: String,
+  ecc: ErrorCorrection,
+  ranges: List(#(Int, Int)),
+  eci: Option(Int),
+  preference: ModePreference,
+  prefix_length: Int,
+  last_error: Option(EncodeError),
+) -> Result(#(Int, List(segment.Segment)), EncodeError) {
+  case ranges, last_error {
+    [], Some(error) -> Error(error)
+    [], None -> Error(DataExceedsCapacity(prefix_length, 0))
+    [#(lo, hi), ..rest], _ ->
+      case segment.optimise(text, lo, preference) {
+        Error(error) -> Error(error)
+        Ok(segments) -> {
+          let bits_needed =
+            prefix_length + segment.encoded_bits(segments, lo, eci)
+          case best_version_in_range(bits_needed, ecc, lo, hi) {
+            Ok(chosen) -> Ok(#(chosen, segments))
+            Error(error) ->
+              choose_version(
+                text,
+                ecc,
+                rest,
+                eci,
+                preference,
+                prefix_length,
+                Some(error),
+              )
+          }
+        }
+      }
   }
 }
 
@@ -243,134 +296,16 @@ fn interleave_blocks(
 ) -> Result(List(Int), EncodeError) {
   case
     version.total_codewords(chosen_version),
-    version.ec_total_codewords(chosen_version, ecc),
     version.ec_blocks(chosen_version, ecc)
   {
-    Ok(total_codewords), Ok(ec_total_codewords), Ok(ec_total_blocks) -> {
-      let data_total_codewords = total_codewords - ec_total_codewords
-      let blocks_in_group2 = total_codewords % ec_total_blocks
-      let blocks_in_group1 = ec_total_blocks - blocks_in_group2
-      let total_codewords_in_group1 = total_codewords / ec_total_blocks
-      let data_codewords_in_group1 = data_total_codewords / ec_total_blocks
-      let data_codewords_in_group2 = data_codewords_in_group1 + 1
-      let ec_count = total_codewords_in_group1 - data_codewords_in_group1
-      let #(data_blocks, _) =
-        split_into_blocks(
-          bytes,
-          blocks_in_group1,
-          data_codewords_in_group1,
-          blocks_in_group2,
-          data_codewords_in_group2,
-          [],
-        )
-      let ec_blocks =
-        list.map(data_blocks, fn(block) { reed_solomon.encode(block, ec_count) })
-      Ok(list.append(interleave_lists(data_blocks), interleave_lists(ec_blocks)))
-    }
-    Error(error), _, _ -> Error(error)
-    _, Error(error), _ -> Error(error)
-    _, _, Error(error) -> Error(error)
-  }
-}
-
-fn split_into_blocks(
-  bytes: List(Int),
-  group1_count: Int,
-  group1_size: Int,
-  group2_count: Int,
-  group2_size: Int,
-  acc: List(List(Int)),
-) -> #(List(List(Int)), List(Int)) {
-  case group1_count > 0 {
-    True -> {
-      let #(head, tail) = take(bytes, group1_size, [])
-      split_into_blocks(
-        tail,
-        group1_count - 1,
-        group1_size,
-        group2_count,
-        group2_size,
-        [head, ..acc],
-      )
-    }
-    False ->
-      case group2_count > 0 {
-        True -> {
-          let #(head, tail) = take(bytes, group2_size, [])
-          split_into_blocks(
-            tail,
-            group1_count,
-            group1_size,
-            group2_count - 1,
-            group2_size,
-            [head, ..acc],
-          )
-        }
-        False -> #(list.reverse(acc), bytes)
-      }
-  }
-}
-
-fn take(
-  values: List(Int),
-  count: Int,
-  acc: List(Int),
-) -> #(List(Int), List(Int)) {
-  case values, count {
-    rest, 0 -> #(list.reverse(acc), rest)
-    [value, ..rest], _ -> take(rest, count - 1, [value, ..acc])
-    [], _ -> #(list.reverse(acc), [])
-  }
-}
-
-fn interleave_lists(blocks: List(List(Int))) -> List(Int) {
-  case max_length(blocks, 0) {
-    0 -> []
-    width -> do_interleave_lists(blocks, 0, width, [])
-  }
-}
-
-fn do_interleave_lists(
-  blocks: List(List(Int)),
-  index: Int,
-  width: Int,
-  acc: List(Int),
-) -> List(Int) {
-  case index >= width {
-    True -> list.reverse(acc)
-    False ->
-      do_interleave_lists(
-        blocks,
-        index + 1,
-        width,
-        prepend_column(blocks, index, acc),
-      )
-  }
-}
-
-fn prepend_column(
-  blocks: List(List(Int)),
-  index: Int,
-  acc: List(Int),
-) -> List(Int) {
-  case blocks {
-    [] -> acc
-    [block, ..rest] ->
-      case util.at(block, index) {
-        Ok(value) -> prepend_column(rest, index, [value, ..acc])
-        Error(_) -> prepend_column(rest, index, acc)
-      }
-  }
-}
-
-fn max_length(blocks: List(List(Int)), current: Int) -> Int {
-  case blocks {
-    [] -> current
-    [block, ..rest] ->
-      case list.length(block) > current {
-        True -> max_length(rest, list.length(block))
-        False -> max_length(rest, current)
-      }
+    Ok(total_codewords), Ok(ec_total_blocks) ->
+      Ok(reed_solomon.encode_interleaved(
+        bytes,
+        total_codewords: total_codewords,
+        blocks: ec_total_blocks,
+      ))
+    Error(error), _ -> Error(error)
+    _, Error(error) -> Error(error)
   }
 }
 
