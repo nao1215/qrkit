@@ -11,6 +11,7 @@ import qrkit/decode
 import qrkit/error
 import qrkit/internal/standard
 import qrkit/types
+import simplifile
 
 fn rows_of(lines: List(String)) -> List(List(Bool)) {
   list.map(lines, fn(line) {
@@ -83,6 +84,17 @@ pub fn reads_structured_append_parts_test() -> Nil {
     header.total |> should.equal(list.length(parts))
   })
   list.map(decoded, decode.text) |> string.concat |> should.equal(payload)
+}
+
+pub fn replaces_unmapped_kanji_in_structured_append_test() -> Nil {
+  let assert Ok(fixture) =
+    simplifile.read("test/fixtures/interop_sequence_invalid_kanji.tsv")
+  let assert [_, _, matrix] = string.split(string.trim(fixture), "\t")
+  let assert Ok(decoded) = decode.from_rows(rows_of(string.split(matrix, "/")))
+  decode.text(decoded) |> should.equal("\u{FFFD}")
+  let assert Some(header) = decode.structured_append(decoded)
+  header.position |> should.equal(1)
+  header.total |> should.equal(2)
 }
 
 pub fn single_symbol_has_no_structured_append_test() -> Nil {

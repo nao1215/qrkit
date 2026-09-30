@@ -43,7 +43,11 @@ fn check(line: String) -> Result(String, Nil) {
     |> list.map(fn(row) {
       string.to_graphemes(row) |> list.map(fn(c) { c == "1" })
     })
-  let describe = fn(got) { label <> " " <> quoted(expected) <> " -> " <> got }
+  // Keep the matrix in a failed nightly log so the exact random case can be
+  // replayed after the generated corpus has been discarded by the runner.
+  let describe = fn(got) {
+    label <> " " <> quoted(expected) <> " -> " <> got <> " rows=" <> rows_text
+  }
   case decode.from_rows(rows) {
     Error(e) -> Ok("ERROR " <> describe(describe_error(e)))
     Ok(decoded) -> {
