@@ -765,10 +765,7 @@ fn kanji_character(value: Int) -> Result(String, DecodeError) {
   }
   case mode.sjis_to_codepoint(sjis) {
     Ok(codepoint) -> codepoint_string(codepoint)
-    Error(Nil) ->
-      Error(MalformedData(
-        "Kanji value 0x" <> int.to_base16(sjis) <> " is not in JIS X 0208",
-      ))
+    Error(Nil) -> Ok("\u{FFFD}")
   }
 }
 
