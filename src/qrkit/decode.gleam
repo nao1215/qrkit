@@ -727,7 +727,8 @@ fn power_of_ten(digits: Int) -> Int {
   }
 }
 
-const alphanumeric_table: String = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
+const alphanumeric_table: String =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
 
 fn read_alphanumeric(
   bits: List(Bool),
