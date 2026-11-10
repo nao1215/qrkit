@@ -401,6 +401,23 @@ Full API reference: <https://hexdocs.pm/qrkit/>.
 - The library writes payload data into the matrix as-is. `EncodeError` variants never contain the input payload except for `UnsupportedCharacter`, which reports the single offending character; if that is a privacy concern (e.g., the QR carried a TOTP secret) handle the error before logging.
 - Every public encoding entry point returns `Result(_, EncodeError)`. Invalid or unsupported input surfaces as a typed error variant (`DataExceedsCapacity`, `InvalidVersion`, …) rather than a runtime crash.
 
+## Verifying releases
+
+Each GitHub Release attaches the Hex package tarball (`qrkit-<version>.tar`),
+`checksums.txt`, a cosign signature bundle (`checksums.txt.sigstore.json`) and
+build provenance (`qrkit-<version>.intoto.jsonl`). Download the assets, then:
+
+```sh
+gh attestation verify qrkit-<version>.tar --repo nao1215/qrkit
+
+cosign verify-blob \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/nao1215/qrkit/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum --check checksums.txt
+```
+
 ## License
 
 [MIT](LICENSE)
