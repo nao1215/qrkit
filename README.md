@@ -412,7 +412,7 @@ gh attestation verify qrkit-<version>.tar --repo nao1215/qrkit
 
 cosign verify-blob \
   --bundle checksums.txt.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/nao1215/qrkit/' \
+  --certificate-identity-regexp '^https://github\.com/nao1215/qrkit/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
 sha256sum --check checksums.txt
