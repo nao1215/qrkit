@@ -46,7 +46,7 @@ fn app_business_card() -> Nil {
     "qr version="
     <> int.to_string(qrkit.version(qr))
     <> " size="
-    <> int.to_string(qrkit.size(qr)),
+    <> int.to_string(qrkit.width(qr)),
   )
   save_png("business_card.png", qr)
 }
@@ -144,7 +144,7 @@ fn app_micro_business_card() -> Nil {
     "Micro QR M"
     <> int.to_string(qrkit.version(qr))
     <> " size="
-    <> int.to_string(qrkit.size(qr)),
+    <> int.to_string(qrkit.width(qr)),
   )
   save_png("micro_contact.png", qr)
 }

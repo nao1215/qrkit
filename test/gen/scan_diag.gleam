@@ -76,7 +76,7 @@ pub fn main() -> Nil {
     try_save(
       label <> ".png",
       qrkit.new("HELLO")
-        |> qrkit.with_min_version(v)
+        |> qrkit.with_exact_version(v)
         |> qrkit.build,
     )
   })

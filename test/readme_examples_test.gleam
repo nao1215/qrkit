@@ -260,7 +260,7 @@ fn readme_describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
   let assert Ok(top_left) = qrkit.module_at(qr, 0, 0)
   #(
     qrkit.version(qr),
-    qrkit.size(qr),
+    qrkit.width(qr),
     qrkit.error_correction_designator(qrkit.error_correction(qr)),
     top_left,
   )

@@ -146,8 +146,8 @@ const alignment_columns: List(Int) = [
 /// Encode `text` into an rMQR symbol.
 ///
 /// `requested_version` is `Some(N)` (1-based, 1 = R7×43, 32 = R17×139) when
-/// the caller explicitly pinned the version via `qrkit.with_exact_version(N)`
-/// (or the legacy `with_min_version(N)` alias); in that case the encoder uses
+/// the caller explicitly pinned the version via `qrkit.with_exact_version(N)`;
+/// in that case the encoder uses
 /// N as a strict version (capacity overflow at N returns `Error` instead of
 /// promoting to N+1). When `requested_version` is `None`, the encoder picks
 /// the smallest version that fits.
