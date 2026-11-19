@@ -16,7 +16,7 @@
 
 - Appending a character never yields a smaller symbol, for short payloads in every family and for 150-700 character payloads that cross the version 9/10 and 26/27 boundaries of Standard QR, where the character-count fields get wider.
 - Raising the error correction level one step never yields a smaller symbol.
-- The decoder reads the same text after a 180 degree turn, a left-right or top-bottom mirror and an added light quiet zone. Square symbols are also turned by 90 and 270 degrees and mirrored on the diagonal.
+- The decoder reads the same text after a turn by 90, 180 or 270 degrees, a left-right, top-bottom or diagonal mirror and an added light quiet zone, for every symbol family.
 - An added quiet zone does not change the version, family, level or mask the decoder reports, and no codeword needs correcting.
 
 ## Snapshots

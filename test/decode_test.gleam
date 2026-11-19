@@ -141,6 +141,26 @@ pub fn reads_rotated_and_mirrored_symbols_test() -> Nil {
   decode.text(decoded) |> should.equal("upside down")
 }
 
+pub fn reads_rmqr_turned_on_its_side_test() -> Nil {
+  let assert Ok(rect) =
+    qrkit.new("standing up")
+    |> qrkit.with_symbol(types.Rectangular)
+    |> qrkit.build
+  let rows = qrkit.rows(rect)
+  let rotate = fn(r) { list.transpose(r) |> list.map(list.reverse) }
+  [
+    rotate(rows),
+    rotate(rotate(rotate(rows))),
+    list.transpose(rows),
+    rotate(list.transpose(rows)) |> rotate |> rotate,
+  ]
+  |> list.each(fn(variant) {
+    let assert Ok(decoded) = decode.from_rows(variant)
+    decode.text(decoded) |> should.equal("standing up")
+    decode.symbol(decoded) |> should.equal(types.Rectangular)
+  })
+}
+
 /// Flip one bit in each of the first `count` codewords of a version 1
 /// symbol, following the placement order.
 fn damage_codewords(qr: qrkit.QrCode, count: Int) -> List(List(Bool)) {

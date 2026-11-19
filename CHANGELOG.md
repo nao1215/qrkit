@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- `decode.from_rows` did not read an rMQR symbol turned by 90 or 270 degrees or mirrored on its diagonal, that is a grid taller than it is wide, and returned `NotASymbol`. A taller grid is now transposed before the four flips are tried.
+
 ### Changed
 
 - GitHub Releases now attach the Hex package tarball, `checksums.txt`, a keyless cosign signature bundle for it and build provenance (`*.intoto.jsonl`). See "Verifying releases" in the README.

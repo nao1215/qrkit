@@ -215,15 +215,25 @@ fn square_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   ]
 }
 
+/// rMQR symbols are wider than they are tall, so a taller grid is a symbol
+/// turned on its side: it is transposed before the four flips are tried. The
+/// grid as given stays the first candidate, so an unreadable grid reports
+/// the error for the orientation the caller supplied.
 fn rectangular_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   let flip_vertical = list.reverse
   let flip_horizontal = fn(r) { list.map(r, list.reverse) }
-  [
-    rows,
-    flip_horizontal(flip_vertical(rows)),
-    flip_horizontal(rows),
-    flip_vertical(rows),
-  ]
+  let flips = fn(wide) {
+    [
+      wide,
+      flip_horizontal(flip_vertical(wide)),
+      flip_horizontal(wide),
+      flip_vertical(wide),
+    ]
+  }
+  case list.length(rows) > width_of(rows) {
+    True -> [rows, ..flips(transpose(rows))]
+    False -> flips(rows)
+  }
 }
 
 /// Return the first success; otherwise the error of the first candidate,
