@@ -30,3 +30,19 @@ The nightly `interop` job in `.github/workflows/nightly-property.yml` compares q
 ## Nightly runs
 
 The nightly `property` job runs the whole suite ten times with `METAMON_RUNS_MULTIPLIER=10`, each pass with a new seed. A failure report prints its seed, so the case can be replayed with `metamon.with_seed` and kept as a regression test.
+
+## Mutation testing
+
+There is no mutation testing tool for Gleam, so `gleam_mutate.py` (from the mutation-testing lab in nao1215/debimate) is run by hand on a copy of the project. It rewrites one operator or boolean result at a time (`==`/`!=`, `&&`/`||`, float comparisons, `-> True`/`-> False`, a dropped `!`) and runs `gleam test` on the Erlang target. The score is killed / (killed + lived).
+
+| Date | Files | Killed | Lived | Score |
+|---|---|---:|---:|---:|
+| 2026-11-19 | every module under `src/` | 215 | 51 | 80.8% |
+
+The first run left the three PNG mutants alive (bit packing and CRC-32); `png_renderer_writes_every_module_and_valid_checksums_test` now reads the scanlines back and checks the IEND checksum, and kills them. The remaining survivors, grouped:
+
+- `decode.guess_shift_jis` (14): Byte data without an ECI that is valid UTF-8 and Shift JIS at once. qrkit always writes Kanji mode for such text, so only symbols from other writers reach it; the nightly interop job reads segno symbols.
+- The data masks 1 and 5 of Standard QR and mask 2 of Micro QR (3): the encoder and decoder share `mask_at`, so an inverted pattern still round-trips. Only the nightly zxing-cpp check would see it.
+- `micro.mode_supported` (3): the segmenter picks a supported mode before this check runs, so returning False only changes which equivalent path is taken.
+- `content.is_some_delim` and `is_unreserved_punct` (7): turning them off percent-encodes characters that may stay literal in a mailto URI. The result is still a valid URI, and no test pins the literal form.
+- Range checks written as `a && b` or `a || b` on values the caller has already validated (`version.is_valid`, `dimensions`, `validate_version`, `finder_overlap` and others).
