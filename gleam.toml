@@ -17,6 +17,7 @@ gleeunit = ">= 1.0.0 and < 2.0.0"
 glinter = ">= 2.14.0 and < 3.0.0"
 simplifile = ">= 2.4.0 and < 3.0.0"
 metamon = ">= 0.12.0 and < 1.0.0"
+birdie = ">= 2.0.0 and < 3.0.0"
 
 [tools.glinter]
 warnings_as_errors = true

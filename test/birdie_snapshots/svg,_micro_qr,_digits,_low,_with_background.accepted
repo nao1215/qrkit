@@ -1,0 +1,54 @@
+---
+version: 2.0.2
+title: svg, micro qr, digits, low, with background
+file: ./test/snapshot_test.gleam
+test_name: svg_snapshot_test
+---
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 68" shape-rendering="crispEdges"><rect width="68" height="68" fill="#fff"/><path fill="#111" d="M8 8h28v4H8z
+M40 8h4v4H40z
+M48 8h4v4H48z
+M56 8h4v4H56z
+M8 12h4v4H8z
+M32 12h4v4H32z
+M40 12h12v4H40z
+M56 12h4v4H56z
+M8 16h4v4H8z
+M16 16h12v4H16z
+M32 16h4v4H32z
+M44 16h8v4H44z
+M56 16h4v4H56z
+M8 20h4v4H8z
+M16 20h12v4H16z
+M32 20h4v4H32z
+M44 20h16v4H44z
+M8 24h4v4H8z
+M16 24h12v4H16z
+M32 24h4v4H32z
+M40 24h12v4H40z
+M8 28h4v4H8z
+M32 28h4v4H32z
+M40 28h4v4H40z
+M56 28h4v4H56z
+M8 32h28v4H8z
+M44 32h16v4H44z
+M44 36h8v4H44z
+M8 40h8v4H8z
+M20 40h4v4H20z
+M40 40h4v4H40z
+M56 40h4v4H56z
+M12 44h8v4H12z
+M24 44h4v4H24z
+M32 44h4v4H32z
+M40 44h4v4H40z
+M48 44h4v4H48z
+M56 44h4v4H56z
+M8 48h12v4H8z
+M28 48h28v4H28z
+M20 52h4v4H20z
+M28 52h4v4H28z
+M48 52h8v4H48z
+M8 56h12v4H8z
+M24 56h4v4H24z
+M36 56h8v4H36z
+M48 56h12v4H48z
+"/></svg>
