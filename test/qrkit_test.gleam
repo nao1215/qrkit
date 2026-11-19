@@ -1221,6 +1221,48 @@ pub fn png_renderer_test() -> Nil {
   |> should.equal(<<0, 0, 0, 58, 0, 0, 0, 58>>)
 }
 
+pub fn png_renderer_writes_every_module_and_valid_checksums_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let image = png.to_bit_array(qr, scale: 1, margin: 0)
+
+  // The IEND chunk is always the same 12 bytes: an empty chunk followed by
+  // the CRC-32 of its type, AE 42 60 82.
+  let size = bit_array.byte_size(image)
+  let assert Ok(iend) = bit_array.slice(image, at: size - 12, take: 12)
+  iend
+  |> should.equal(<<0, 0, 0, 0, 73, 69, 78, 68, 0xAE, 0x42, 0x60, 0x82>>)
+
+  // The image data is a stored (uncompressed) zlib stream, so the scanlines
+  // start right after the signature, IHDR, PLTE, the IDAT header, the zlib
+  // header and the stored-block header (8 + 25 + 18 + 8 + 2 + 5 bytes).
+  // Each scanline is a filter byte and one bit per module, palette index 0
+  // being dark, padded to a whole byte.
+  let width = qrkit.width(qr)
+  let row_bytes = 1 + { width + 7 } / 8
+  let rows = qrkit.rows(qr)
+  rows
+  |> list.index_map(fn(_, row) {
+    let assert Ok(line) =
+      bit_array.slice(image, at: 66 + row * row_bytes, take: row_bytes)
+    png_scanline(line, width)
+  })
+  |> should.equal(rows)
+}
+
+fn png_scanline(line: BitArray, width: Int) -> List(Bool) {
+  let assert <<0, pixels:bits>> = line
+  png_pixels(pixels, width, [])
+}
+
+fn png_pixels(bits: BitArray, remaining: Int, acc: List(Bool)) -> List(Bool) {
+  case remaining, bits {
+    0, _ -> list.reverse(acc)
+    _, <<bit:1, rest:bits>> ->
+      png_pixels(rest, remaining - 1, [bit == 0, ..acc])
+    _, _ -> list.reverse(acc)
+  }
+}
+
 pub fn png_renderer_normalizes_invalid_scale_and_margin_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
   let normalized = png.to_bit_array(qr, scale: 1, margin: 0)

@@ -413,6 +413,7 @@ Full API reference: <https://hexdocs.pm/qrkit/>.
 | Metamorphic relations | [Wrong size choice, orientation and quiet zone handling](doc/testing.md#metamorphic-relations) |
 | Snapshots | [Unreviewed changes to symbols and rendered output](doc/testing.md#snapshots) |
 | Differential testing | [Symbols other readers cannot read, misread foreign symbols](doc/testing.md#differential-testing) |
+| Mutation testing | [Assertions that miss a changed operator or branch](doc/testing.md#mutation-testing) |
 
 ## Verifying releases
 
