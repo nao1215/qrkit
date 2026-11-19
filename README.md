@@ -404,6 +404,16 @@ Full API reference: <https://hexdocs.pm/qrkit/>.
 - The library writes payload data into the matrix as-is. `EncodeError` variants never contain the input payload except for `UnsupportedCharacter`, which reports the single offending character; if that is a privacy concern (e.g., the QR carried a TOTP secret) handle the error before logging.
 - Every public encoding entry point returns `Result(_, EncodeError)`. Invalid or unsupported input surfaces as a typed error variant (`DataExceedsCapacity`, `InvalidVersion`, …) rather than a runtime crash.
 
+## Testing
+
+| Technique | Bug class caught here |
+|---|---|
+| Examples and unit tests | [Wrong matrices, capacities and errors](doc/testing.md#examples-and-unit-tests) |
+| Generated properties | [Round trips that lose data, uncorrected damage, decoder crashes](doc/testing.md#generated-properties) |
+| Metamorphic relations | [Wrong size choice, orientation and quiet zone handling](doc/testing.md#metamorphic-relations) |
+| Snapshots | [Unreviewed changes to symbols and rendered output](doc/testing.md#snapshots) |
+| Differential testing | [Symbols other readers cannot read, misread foreign symbols](doc/testing.md#differential-testing) |
+
 ## Verifying releases
 
 Each GitHub Release attaches the Hex package tarball (`qrkit-<version>.tar`),
