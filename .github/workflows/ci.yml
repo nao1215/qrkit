@@ -10,11 +10,17 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: ["doc/**", "CHANGELOG.md"]
   pull_request:
     branches: [main]
+    paths-ignore: ["doc/**", "CHANGELOG.md"]
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -47,8 +53,12 @@ jobs:
           gh actions-lock --verify
 
   floor:
-    name: Test (Gleam 1.14.0, OTP 27, Node 22)
+    name: Test (Gleam 1.14.0, OTP 27, Node 22, ${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [erlang, javascript]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
@@ -56,14 +66,13 @@ jobs:
           otp-version: "27"
           gleam-version: "1.14.0"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: matrix.target == 'javascript'
         with:
           node-version: "22"
       - name: Download dependencies
         run: gleam deps download
-      - name: Test (Erlang)
-        run: gleam test --target erlang
-      - name: Test (JavaScript)
-        run: gleam test --target javascript
+      - name: Test
+        run: gleam test --target ${{ matrix.target }}
 
   build-and-test:
     name: Build and test (${{ matrix.target }})
