@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.7.0] - 2026-11-19
+
 ### Removed
 
 - Breaking: `qrkit.with_min_version`, an alias of `with_exact_version` whose name suggested a lower bound; call `with_exact_version`.
