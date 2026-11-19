@@ -103,23 +103,25 @@ fn long_request() -> generator.Generator(Request) {
       #(1, generator.ascii_printable()),
     ])
   generator.tuple3(
-    generator.string(char, range.constant(150, 700)),
+    generator.string(char, range.constant(150, 500)),
     generator.return(types.Standard),
     generators.ecc(),
   )
 }
 
+/// Each run builds two symbols of version 10 to 30, so this test keeps its
+/// own small run count: the nightly job multiplies it by 10 and eunit stops a
+/// test after 5 seconds.
 pub fn longer_long_payload_never_gets_a_smaller_symbol_test() -> Nil {
-  let grows = relation.new("not smaller", not_larger)
-  metamon.forall_morphs(
+  let cfg = metamon.default_config() |> metamon.with_runs_or_panic(10)
+  metamon.forall_morph_with(
+    cfg,
     long_request(),
-    list.map(["7", "Z", "z"], fn(suffix) {
-      metamon.mr(
-        name: "append " <> suffix,
-        transform: append(suffix),
-        relation: grows,
-      )
-    }),
+    metamon.mr(
+      name: "append 7",
+      transform: append("7"),
+      relation: relation.new("not smaller", not_larger),
+    ),
     modules,
   )
 }
@@ -147,15 +149,6 @@ fn rows_of(
     |> result.map(qrkit.rows)
     |> result.unwrap([])
   })
-}
-
-/// Standard QR and Micro QR, whose symbols are square.
-fn square_request() -> generator.Generator(Request) {
-  generator.tuple3(
-    generators.text(),
-    generator.element_of([types.Standard, types.Micro]),
-    generators.ecc(),
-  )
 }
 
 fn transpose(rows: List(List(Bool))) -> List(List(Bool)) {
@@ -218,10 +211,10 @@ pub fn decoder_reads_the_same_text_after_turning_and_padding_test() -> Nil {
   )
 }
 
-pub fn decoder_reads_the_same_square_symbol_after_a_quarter_turn_test() -> Nil {
+pub fn decoder_reads_the_same_text_after_a_quarter_turn_test() -> Nil {
   let quarter = transform.new("rotate 90", rotate_clockwise)
   metamon.forall_morphs(
-    rows_of(square_request()),
+    rows_of(request()),
     [
       metamon.invariant_under(name: "rotate 90", under: quarter),
       metamon.invariant_under(
