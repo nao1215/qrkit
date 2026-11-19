@@ -35,6 +35,16 @@ jobs:
         run: just typecheck
       - name: Lint
         run: just lint
+      # After editing any workflow, regenerate actions.lock with
+      # `python3 .github/scripts/lock_actions.py` (needs
+      # `gh extension install github/gh-actions-lock --pin v0.4.1`).
+      - name: Verify workflow lockfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh extension install github/gh-actions-lock --pin v0.4.1
+          python3 .github/scripts/lock_actions.py --check
+          gh actions-lock --verify
 
   floor:
     name: Test (Gleam 1.14.0, OTP 27, Node 22)
