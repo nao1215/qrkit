@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Removed
+
+- Breaking: `qrkit.with_min_version`, an alias of `with_exact_version` whose name suggested a lower bound; call `with_exact_version`.
+- Breaking: `qrkit.size` and `qrkit.symbol_size`, which repeated `qrkit.width` and `qrkit.height` (`size` returned only the width of an rMQR symbol).
+- Breaking: the `qrkit.Mode` alias. No function takes or returns `types.Mode`, which is now internal.
+
 ### Fixed
 
 - `decode.from_rows` did not read an rMQR symbol turned by 90 or 270 degrees or mirrored on its diagonal, that is a grid taller than it is wide, and returned `NotASymbol`. A taller grid is now transposed before the four flips are tried.

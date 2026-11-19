@@ -56,7 +56,7 @@ pub fn high_density_qr() -> qrkit.QrCode {
 }
 ```
 
-`with_ecc` selects an error correction level, `with_exact_version` pins the symbol version (the build returns `Error(DataExceedsCapacity)` or `Error(IncompatibleOptions)` if the payload, mode, or ECC level does not fit at that version), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8). ECI is available on Standard QR only, and invalid designators surface as `Error(InvalidEciDesignator(..))`. When no exact version is configured, `build` picks the smallest version that fits. `with_min_version` is kept as a compatibility alias for older callers.
+`with_ecc` selects an error correction level, `with_exact_version` pins the symbol version (the build returns `Error(DataExceedsCapacity)` or `Error(IncompatibleOptions)` if the payload, mode, or ECC level does not fit at that version), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8). ECI is available on Standard QR only, and invalid designators surface as `Error(InvalidEciDesignator(..))`. When no exact version is configured, `build` picks the smallest version that fits.
 
 ## Render as SVG for the browser
 
@@ -241,7 +241,7 @@ pub fn describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
   let assert Ok(top_left) = qrkit.module_at(qr, 0, 0)
   #(
     qrkit.version(qr),
-    qrkit.size(qr),
+    qrkit.width(qr),
     qrkit.error_correction_designator(qrkit.error_correction(qr)),
     top_left,
   )

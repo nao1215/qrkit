@@ -514,12 +514,12 @@ pub fn v2_alignment_matches_reference_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("HELLO WORLD")
     |> qrkit.with_ecc(types.Medium)
-    |> qrkit.with_min_version(2)
+    |> qrkit.with_exact_version(2)
     |> qrkit.build
 
   qrkit.version(qr)
   |> should.equal(2)
-  qrkit.size(qr)
+  qrkit.width(qr)
   |> should.equal(25)
   qr
   |> qrkit.rows
@@ -560,12 +560,12 @@ pub fn v7_decodes_to_input_text_test() -> Nil {
   // unreadable. This test pins the v7 module count.
   let assert Ok(qr) =
     qrkit.new("HELLO")
-    |> qrkit.with_min_version(7)
+    |> qrkit.with_exact_version(7)
     |> qrkit.build
 
   qrkit.version(qr)
   |> should.equal(7)
-  qrkit.size(qr)
+  qrkit.width(qr)
   |> should.equal(45)
 
   // Centre alignment (22, 22) must be dark.
@@ -599,7 +599,7 @@ pub fn micro_qr_m1_half_codeword_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("01234")
     |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_min_version(1)
+    |> qrkit.with_exact_version(1)
     |> qrkit.with_ecc(types.Low)
     |> qrkit.build()
 
@@ -675,7 +675,7 @@ pub fn rmqr_default_picks_the_smallest_area_test() -> Nil {
     |> qrkit.with_ecc(types.Medium)
     |> qrkit.build()
 
-  qrkit.symbol_size(qr)
+  #(qrkit.width(qr), qrkit.height(qr))
   |> should.equal(#(27, 11))
   qrkit.symbol(qr)
   |> should.equal(types.Rectangular)
@@ -690,7 +690,7 @@ pub fn rmqr_shortest_height_priority_test() -> Nil {
     |> qrkit.with_ecc(types.Medium)
     |> qrkit.with_rectangular_priority(types.ShortestHeight)
     |> qrkit.build()
-  qrkit.symbol_size(qr) |> should.equal(#(43, 7))
+  #(qrkit.width(qr), qrkit.height(qr)) |> should.equal(#(43, 7))
 }
 
 pub fn rmqr_priorities_pick_different_shapes_test() -> Nil {
@@ -704,7 +704,7 @@ pub fn rmqr_priorities_pick_different_shapes_test() -> Nil {
       |> qrkit.with_symbol(types.Rectangular)
       |> qrkit.with_rectangular_priority(priority)
       |> qrkit.build()
-    qrkit.symbol_size(qr)
+    #(qrkit.width(qr), qrkit.height(qr))
   }
   build(types.SmallestArea) |> should.equal(#(77, 11))
   build(types.ShortestHeight) |> should.equal(#(139, 7))
@@ -838,9 +838,9 @@ pub fn byte_mode_cci_boundary_v9_v10_test() -> Nil {
   // mode character count uses 16 bits instead of 8, so the bit stream shifts
   // and the entire data layout changes.
   let assert Ok(at_v9) =
-    qrkit.new("Hello, world!") |> qrkit.with_min_version(9) |> qrkit.build
+    qrkit.new("Hello, world!") |> qrkit.with_exact_version(9) |> qrkit.build
   let assert Ok(at_v10) =
-    qrkit.new("Hello, world!") |> qrkit.with_min_version(10) |> qrkit.build
+    qrkit.new("Hello, world!") |> qrkit.with_exact_version(10) |> qrkit.build
   qrkit.version(at_v9)
   |> should.equal(9)
   qrkit.version(at_v10)
@@ -853,10 +853,10 @@ pub fn byte_mode_v10_matches_reference_test() -> Nil {
   // Captured from the npm `qrcode` library for "Hello, world!" at v10-M.
   // Exercises the 16-bit Byte-mode CCI bracket.
   let assert Ok(qr) =
-    qrkit.new("Hello, world!") |> qrkit.with_min_version(10) |> qrkit.build
+    qrkit.new("Hello, world!") |> qrkit.with_exact_version(10) |> qrkit.build
   qrkit.version(qr)
   |> should.equal(10)
-  qrkit.size(qr)
+  qrkit.width(qr)
   |> should.equal(57)
   let rendered =
     qr
@@ -876,11 +876,11 @@ pub fn v5_multi_block_interleaving_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new("https://github.com/nao1215/qrkit")
     |> qrkit.with_ecc(types.Medium)
-    |> qrkit.with_min_version(5)
+    |> qrkit.with_exact_version(5)
     |> qrkit.build
   qrkit.version(qr)
   |> should.equal(5)
-  qrkit.size(qr)
+  qrkit.width(qr)
   |> should.equal(37)
   qr
   |> qrkit.rows
@@ -938,7 +938,7 @@ pub fn reserved_areas_intact_at_v25_test() -> Nil {
   let assert Ok(qr) =
     qrkit.new(string.repeat("0123456789", 30))
     |> qrkit.with_ecc(types.Medium)
-    |> qrkit.with_min_version(25)
+    |> qrkit.with_exact_version(25)
     |> qrkit.build
   qrkit.version(qr)
   |> should.equal(25)
@@ -993,14 +993,14 @@ pub fn control_chars_and_nul_byte_test() -> Nil {
   // the encoder or be silently dropped.
   let payload = "line1\nline2\tcol\r\u{0}nul\u{0}\u{1f}"
   let assert Ok(qr) = qrkit.encode(payload)
-  { qrkit.size(qr) >= 21 }
+  { qrkit.width(qr) >= 21 }
   |> should.be_true
 }
 
 pub fn emoji_payload_test() -> Nil {
   // Emojis are valid UTF-8 and just become Byte-mode bytes.
   let assert Ok(qr) = qrkit.encode("Hello 👋🌏 World")
-  { qrkit.size(qr) > 0 }
+  { qrkit.width(qr) > 0 }
   |> should.be_true
 }
 
@@ -1010,14 +1010,14 @@ pub fn emoji_payload_test() -> Nil {
 
 pub fn version_below_one_errors_test() -> Nil {
   qrkit.new("HELLO")
-  |> qrkit.with_min_version(0)
+  |> qrkit.with_exact_version(0)
   |> qrkit.build
   |> should.equal(Error(error.InvalidVersion(0)))
 }
 
 pub fn version_above_forty_errors_test() -> Nil {
   qrkit.new("HELLO")
-  |> qrkit.with_min_version(41)
+  |> qrkit.with_exact_version(41)
   |> qrkit.build
   |> should.equal(Error(error.InvalidVersion(41)))
 }
@@ -1063,8 +1063,7 @@ pub fn eci_is_rejected_for_micro_qr_test() -> Nil {
 }
 
 // ---------------------------------------------------------------------------
-// `with_exact_version` is the preferred exact-version API, and
-// `with_min_version` remains a compatibility alias for the same behaviour.
+// `with_exact_version` pins the version.
 //
 // When the caller pins version N, the builder must use exactly version N —
 // capacity overflow, mode incompatibility, or ECC incompatibility at N must
@@ -1081,13 +1080,13 @@ pub fn exact_version_pins_exact_version_test() -> Nil {
   |> should.equal(5)
 }
 
-pub fn strict_standard_overflow_at_min_version_errors_test() -> Nil {
+pub fn strict_standard_overflow_at_exact_version_errors_test() -> Nil {
   // v1 ECC-M Alphanumeric capacity is 20 chars. 100 chars cannot fit at v1,
   // so a strict v1 must return DataExceedsCapacity rather than promoting.
   let payload = string.repeat("A", 100)
   let result =
     qrkit.new(payload)
-    |> qrkit.with_min_version(1)
+    |> qrkit.with_exact_version(1)
     |> qrkit.build
   case result {
     Error(error.DataExceedsCapacity(_, _)) -> Nil
@@ -1101,7 +1100,7 @@ pub fn strict_micro_m1_byte_mode_errors_test() -> Nil {
   let result =
     qrkit.new("abc")
     |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_min_version(1)
+    |> qrkit.with_exact_version(1)
     |> qrkit.build
   case result {
     Error(error.IncompatibleOptions(_)) -> Nil
@@ -1111,12 +1110,12 @@ pub fn strict_micro_m1_byte_mode_errors_test() -> Nil {
 
 pub fn strict_micro_m1_medium_ecc_errors_test() -> Nil {
   // M1 supports error-detection only — no L/M/Q/H ECC levels.
-  // `Micro + min_version=1 + ecc=Medium` must surface IncompatibleOptions,
+  // `Micro + exact version 1 + ecc=Medium` must surface IncompatibleOptions,
   // not silently promote to M2 (which does support Medium).
   let result =
     qrkit.new("123")
     |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_min_version(1)
+    |> qrkit.with_exact_version(1)
     |> qrkit.with_ecc(types.Medium)
     |> qrkit.build
   case result {
@@ -1133,7 +1132,7 @@ pub fn strict_micro_m1_overflow_errors_test() -> Nil {
   let result =
     qrkit.new("01234567")
     |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_min_version(1)
+    |> qrkit.with_exact_version(1)
     |> qrkit.with_ecc(types.Low)
     |> qrkit.build
   case result {
@@ -1144,13 +1143,13 @@ pub fn strict_micro_m1_overflow_errors_test() -> Nil {
 
 pub fn strict_rmqr_overflow_errors_test() -> Nil {
   // rMQR R7×43 (index 1) at Medium ECC holds a small payload. A very long
-  // payload at rMQR + min_version=1 must surface DataExceedsCapacity, not
+  // payload at rMQR + exact version 1 must surface DataExceedsCapacity, not
   // promote to a wider rMQR variant.
   let huge = string.repeat("X", 500)
   let result =
     qrkit.new(huge)
     |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_min_version(1)
+    |> qrkit.with_exact_version(1)
     |> qrkit.with_ecc(types.Medium)
     |> qrkit.build
   case result {
@@ -1159,18 +1158,8 @@ pub fn strict_rmqr_overflow_errors_test() -> Nil {
   }
 }
 
-pub fn strict_min_version_pins_exact_version_test() -> Nil {
-  // Legacy alias coverage: `with_min_version` still pins the version exactly.
-  let assert Ok(qr) =
-    qrkit.new("HI")
-    |> qrkit.with_min_version(5)
-    |> qrkit.build
-  qrkit.version(qr)
-  |> should.equal(5)
-}
-
 pub fn default_smallest_fit_unchanged_test() -> Nil {
-  // When with_min_version is not called, build still picks the smallest
+  // When with_exact_version is not called, build still picks the smallest
   // fit — the strict behaviour only applies when the caller asks for a
   // specific floor.
   let assert Ok(qr) = qrkit.new("HI") |> qrkit.build
@@ -1291,7 +1280,7 @@ pub fn rmqr_encodes_kana_in_kanji_mode_test() -> Nil {
     |> qrkit.with_rectangular_priority(types.ShortestHeight)
     |> qrkit.build
   // R7x59: five characters in Kanji mode need 3 + 3 + 65 = 71 bits.
-  qrkit.symbol_size(qr) |> should.equal(#(59, 7))
+  #(qrkit.width(qr), qrkit.height(qr)) |> should.equal(#(59, 7))
 }
 
 pub fn micro_qr_mixes_numeric_and_kanji_segments_test() -> Nil {
@@ -1319,7 +1308,7 @@ pub fn rmqr_mixes_kanji_and_alphanumeric_segments_test() -> Nil {
     |> qrkit.with_symbol(types.Rectangular)
     |> qrkit.with_rectangular_priority(types.ShortestHeight)
     |> qrkit.build
-  qrkit.symbol_size(qr) |> should.equal(#(77, 7))
+  #(qrkit.width(qr), qrkit.height(qr)) |> should.equal(#(77, 7))
 }
 
 fn rows_to_strings(rows: List(List(Bool))) -> List(String) {

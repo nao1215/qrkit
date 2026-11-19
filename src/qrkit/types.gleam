@@ -11,7 +11,9 @@ pub type ErrorCorrection {
   High
 }
 
-/// Data encoding mode.
+/// Data encoding mode the segmenter chose for part of the payload. No public
+/// function takes or returns it, so it is internal to the package.
+@internal
 pub type Mode {
   Numeric
   Alphanumeric

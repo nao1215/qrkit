@@ -15,11 +15,6 @@ import qrkit/types
 pub type ErrorCorrection =
   types.ErrorCorrection
 
-/// Type alias for [`qrkit/types.Mode`](./qrkit/types.html#Mode).
-/// To pattern-match on `Numeric | Alphanumeric | Byte | Kanji`, `import qrkit/types`.
-pub type Mode =
-  types.Mode
-
 /// Type alias for [`qrkit/types.ModePreference`](./qrkit/types.html#ModePreference).
 /// To pattern-match on `Auto | ForceByte`, `import qrkit/types`.
 pub type ModePreference =
@@ -109,14 +104,6 @@ pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
 pub fn with_exact_version(builder: Builder, version: Int) -> Builder {
   let Builder(data, ecc, _, eci, symbol, preference, priority) = builder
   Builder(data, ecc, Some(version), eci, symbol, preference, priority)
-}
-
-/// Compatibility alias for [`with_exact_version`](#with_exact_version).
-///
-/// Despite the historical name, this pins the symbol version exactly rather
-/// than setting a lower bound. New code should prefer `with_exact_version`.
-pub fn with_min_version(builder: Builder, min_version: Int) -> Builder {
-  with_exact_version(builder, min_version)
 }
 
 /// Add an optional ECI assignment designator before the data segments.
@@ -337,13 +324,6 @@ pub fn version(qr: QrCode) -> Int {
   version
 }
 
-/// Return the symbol side length in modules. For non-square rMQR symbols this
-/// is the width; use `width` and `height` for the explicit dimensions.
-pub fn size(qr: QrCode) -> Int {
-  let QrCode(_, width, _, _, _, _, _) = qr
-  width
-}
-
 /// Return the symbol width in modules.
 pub fn width(qr: QrCode) -> Int {
   let QrCode(_, width, _, _, _, _, _) = qr
@@ -354,11 +334,6 @@ pub fn width(qr: QrCode) -> Int {
 pub fn height(qr: QrCode) -> Int {
   let QrCode(_, _, height, _, _, _, _) = qr
   height
-}
-
-/// Return the symbol dimensions in modules.
-pub fn symbol_size(qr: QrCode) -> #(Int, Int) {
-  #(width(qr), height(qr))
 }
 
 /// Return the error correction level used by this symbol.
