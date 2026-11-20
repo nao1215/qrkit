@@ -12,9 +12,9 @@
 
 Pure-Gleam QR code generator and decoder for the Erlang and JavaScript targets.
 
-Covers Standard QR (versions 1–40, ECC L/M/Q/H), Micro QR (M1–M4), rMQR (ISO/IEC 23941, 32 sizes), and Structured Append, with Kanji mode for all of JIS X 0208 and segmentation that picks the fewest bits. Ships with terminal, SVG, and PNG renderers, a decoder for module matrices with Reed-Solomon error correction, and content helpers for URL, WiFi, vCard, email, SMS, phone, geo, and calendar payloads.
+It covers Standard QR (versions 1 to 40, ECC L/M/Q/H), Micro QR (M1 to M4), rMQR (ISO/IEC 23941, 32 sizes) and Structured Append, with Kanji mode for all of JIS X 0208 and segmentation that picks the fewest bits. It renders to the terminal, SVG and PNG, decodes module matrices with Reed-Solomon error correction, and builds URL, WiFi, vCard, email, SMS, phone, geo and calendar payloads.
 
-The QR below points to the project's GitHub Sponsors page. Try scanning it with your phone — every example in this README was used to render it.
+The QR below was rendered by qrkit and points to the project's GitHub Sponsors page.
 
 ![Sponsor nao1215](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/sponsor-qr.png)
 
@@ -23,8 +23,6 @@ gleam add qrkit
 ```
 
 ## Hello, QR
-
-The shortest possible path: encode a string and print it to the terminal.
 
 ```gleam
 import gleam/io
@@ -37,7 +35,7 @@ pub fn main() {
 }
 ```
 
-`qrkit.encode/1` picks the smallest version that fits and defaults to ECC level Medium. The returned `QrCode` is opaque — use the renderers in `qrkit/render/*` to turn it into pixels.
+`qrkit.encode/1` picks the smallest version that fits and uses ECC level Medium. The renderers in `qrkit/render/*` turn the opaque `QrCode` into output.
 
 ## Builder for ECC, exact version, and ECI
 
@@ -56,7 +54,7 @@ pub fn high_density_qr() -> qrkit.QrCode {
 }
 ```
 
-`with_ecc` selects an error correction level, `with_exact_version` pins the symbol version (the build returns `Error(DataExceedsCapacity)` or `Error(IncompatibleOptions)` if the payload, mode, or ECC level does not fit at that version), and `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8). ECI is available on Standard QR only, and invalid designators surface as `Error(InvalidEciDesignator(..))`. When no exact version is configured, `build` picks the smallest version that fits.
+`with_exact_version` pins the symbol version; `build` returns `Error(DataExceedsCapacity)` or `Error(IncompatibleOptions)` if the payload, mode or ECC level does not fit there. `with_eci` prepends an Extended Channel Interpretation header (26 for UTF-8) and works on Standard QR only.
 
 ## Render as SVG for the browser
 
@@ -70,7 +68,7 @@ pub fn render_svg() -> String {
 }
 ```
 
-The returned string is a complete `<svg>` document. Drop it into any HTML template; in Lustre, pass it to an unsafe-HTML helper after sanitising for your environment. Customise the look with the SVG builder:
+The result is a complete `<svg>` document. The SVG builder changes size, margin and colours:
 
 ```gleam
 import qrkit
@@ -102,7 +100,7 @@ pub fn render_png_bytes() -> BitArray {
 }
 ```
 
-`png.to_bit_array/3` returns raw PNG bytes. On the Erlang target a file IO library such as `simplifile` writes them to disk in one call:
+`png.to_bit_array/3` returns raw PNG bytes. On the Erlang target, `simplifile` can write them:
 
 ```gleam
 import qrkit
@@ -118,7 +116,7 @@ pub fn save_png() -> Result(Nil, simplifile.FileError) {
 
 ## ASCII for the terminal
 
-`ascii.to_string/1` uses `██` full blocks with a 4-module quiet zone. `ascii.to_string_compact/1` halves the vertical size by using `▀`/`▄` half-blocks (the most compact for LLM chat windows and narrow terminals), and `ascii.with_inverse/1` swaps light and dark for dark-themed terminals.
+`ascii.to_string/1` draws `██` full blocks with a 4-module quiet zone. `ascii.to_string_compact/1` uses `▀`/`▄` half-blocks at half the height, and `ascii.with_inverse/1` swaps light and dark for dark-themed terminals.
 
 ```gleam
 import gleam/io
@@ -131,7 +129,7 @@ pub fn main() {
 }
 ```
 
-Running the snippet above prints (the leading / trailing blank lines are the 4-module quiet zone QR readers need):
+It prints the following (the blank lines above and below are the quiet zone):
 
 ```
                                      
@@ -155,9 +153,7 @@ Running the snippet above prints (the leading / trailing blank lines are the 4-m
                                      
 ```
 
-This block is scannable directly from the terminal screen with a phone camera — the QR decodes to https://github.com/sponsors/nao1215. For dark-themed terminals call `ascii.with_inverse(qr)` instead, and for double-width pixels use `ascii.to_string(qr)`.
-
-## WiFi credentials
+## Payload helpers
 
 ```gleam
 import qrkit
@@ -176,10 +172,6 @@ pub fn wifi_qr_svg() -> String {
   svg.to_string(qr)
 }
 ```
-
-Phones recognise the `WIFI:` payload and offer a one-tap "join network" prompt.
-
-## vCard, email, SMS, phone, geo
 
 ```gleam
 import qrkit
@@ -213,8 +205,6 @@ pub fn map_pin_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
 }
 ```
 
-## Calendar invite
-
 ```gleam
 import qrkit
 import qrkit/content
@@ -230,8 +220,6 @@ pub fn meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
 ```
 
 ## Inspect the matrix
-
-The `QrCode` type is opaque, but every useful field is accessible through a small inspector API.
 
 ```gleam
 import qrkit
@@ -253,11 +241,11 @@ pub fn ecc_letter_for_quartile() -> String {
 }
 ```
 
-`qrkit.rows/1` returns the matrix as `List(List(Bool))` for custom renderers. `qrkit.module_at/3` returns `Error(ModuleOutOfBounds(..))` for invalid coordinates instead of silently treating them as light modules.
+`qrkit.rows/1` returns the matrix as `List(List(Bool))` for custom renderers. `qrkit.module_at/3` returns `Error(ModuleOutOfBounds(..))` for coordinates outside the symbol.
 
 ## Decode a module matrix
 
-`qrkit/decode` reads a Standard QR, Micro QR or rMQR symbol from rows of modules — the shape `qrkit.rows` returns — and corrects damaged codewords with Reed-Solomon error correction. A light quiet zone is removed, rotated and mirrored symbols are read, and Byte data is interpreted by its ECI or, without one, guessed between UTF-8, Shift JIS and ISO-8859-1 as zxing does.
+`qrkit/decode` reads a Standard QR, Micro QR or rMQR symbol from rows of modules (the shape `qrkit.rows` returns) and corrects damaged codewords. It strips a light quiet zone, reads rotated and mirrored symbols, and interprets Byte data by its ECI or, without one, guesses between UTF-8, Shift JIS and ISO-8859-1 as zxing does.
 
 ```gleam
 import qrkit
@@ -272,11 +260,13 @@ pub fn round_trip() -> Result(String, qrkit.DecodeError) {
 }
 ```
 
-`decode.errors_corrected`, `decode.error_correction`, `decode.version`, `decode.eci` and `decode.structured_append` report what was read. Errors are `NotASymbol(width, height)`, `UnreadableFormatInformation`, `TooManyErrors` and `MalformedData(reason)` in `qrkit/error`. The decoder reads a grid of modules, not a photo: locating a symbol in a camera image is out of scope.
+`decode.errors_corrected`, `decode.error_correction`, `decode.version`, `decode.eci` and `decode.structured_append` report what was read. Errors are `NotASymbol(width, height)`, `UnreadableFormatInformation`, `TooManyErrors` and `MalformedData(reason)` in `qrkit/error`.
 
-## Micro QR
+## Micro QR, rMQR and Structured Append
 
-Micro QR squeezes a small payload into 11×11 — 17×17 modules. M1 takes Numeric only; M2 adds Alphanumeric; M3 and M4 take all four modes. ECC level constraints follow ISO/IEC 18004 Annex K (M1 has error detection only, M4 supports up to Quartile).
+Many consumer scanner apps cannot read Micro QR or rMQR, and some decode Structured Append symbols one by one without joining them. Test the target reader first.
+
+Micro QR fits a small payload into 11×11 to 17×17 modules. M1 takes Numeric only, M2 adds Alphanumeric, and M3 and M4 take all four modes. ECC levels follow ISO/IEC 18004 Annex K: M1 has error detection only, and M4 goes up to Quartile.
 
 ```gleam
 import qrkit
@@ -295,13 +285,7 @@ pub fn business_card_qr() -> String {
 }
 ```
 
-Micro QR is not universally supported by consumer scanner apps; confirm against the target reader before relying on it.
-
-## rMQR (rectangular Micro QR)
-
-ISO/IEC 23941 defines 32 rectangular sizes from 7×43 to 17×139, with only Medium and High error correction levels. Useful for narrow labels and packaging.
-
-Reader support for rMQR is narrower than Micro QR — many consumer scanner apps do not recognise the rectangular symbol family. Check the deployment target before choosing it.
+rMQR (ISO/IEC 23941) has 32 rectangular sizes from 7×43 to 17×139, with Medium and High error correction only.
 
 ```gleam
 import qrkit
@@ -320,11 +304,9 @@ pub fn label_qr() -> String {
 }
 ```
 
-Several sizes usually hold the same payload. `build` picks the one with the fewest modules by default (`types.SmallestArea`); `types.ShortestHeight` picks the lowest symbol for narrow labels, and `types.NarrowestWidth` the narrowest. `with_exact_version` pins one size instead.
+By default `build` picks the size with the fewest modules (`types.SmallestArea`). `types.ShortestHeight` picks the lowest symbol, `types.NarrowestWidth` the narrowest, and `with_exact_version` pins one size.
 
-## Structured Append
-
-`qrkit.encode_split(data, max_version)` chains up to 16 symbols so a single payload can be carried across multiple printed QR codes. Each returned symbol carries the ISO/IEC 18004 §8.2 header (mode indicator + symbol position + total − 1 + parity byte) so a compliant reader can stitch them back together.
+`qrkit.encode_split(data, max_version)` splits a payload across up to 16 symbols, each with the ISO/IEC 18004 §8.2 Structured Append header (mode indicator, symbol position, total − 1, parity byte).
 
 ```gleam
 import gleam/list
@@ -339,13 +321,11 @@ pub fn split_long_message() -> List(String) {
 }
 ```
 
-When the payload already fits in one symbol at `max_version`, the returned list contains a single QR without the Structured Append header.
-
-Structured Append reader support varies in practice — some scanner apps decode each symbol independently rather than stitching the payload back together. Verify against the target reader before relying on it.
+If the payload fits in one symbol at `max_version`, the list holds a single QR without the header.
 
 ## Force a single encoding mode
 
-`with_mode_preference(qrkit.ForceByte)` skips the segmenting optimiser and encodes the whole string as raw bytes — useful when you need a deterministic mode regardless of the input.
+`with_mode_preference(types.ForceByte)` skips segmentation and encodes the whole string as bytes.
 
 ```gleam
 import qrkit
@@ -360,14 +340,14 @@ pub fn raw_byte_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
 
 ## Errors
 
-Every public encoding entry point returns `Result(_, qrkit.EncodeError)`. The variants live in `qrkit/error` and are:
+Every encoding function returns `Result(_, qrkit.EncodeError)` instead of crashing. The variants live in `qrkit/error`:
 
-- `EmptyInput` — empty `data`.
-- `InvalidVersion(requested)` — version outside the symbol family.
-- `InvalidEciDesignator(designator)` — ECI assignment number outside `0..999999`.
-- `DataExceedsCapacity(bits_needed, bits_available)` — payload does not fit.
-- `UnsupportedCharacter(at_index, character)` — a character the chosen mode cannot encode.
-- `IncompatibleOptions(reason)` — combination not allowed (for example, rMQR with Low ECC).
+- `EmptyInput`: empty `data`.
+- `InvalidVersion(requested)`: version outside the symbol family.
+- `InvalidEciDesignator(designator)`: ECI assignment number outside `0..999999`.
+- `DataExceedsCapacity(bits_needed, bits_available)`: payload does not fit.
+- `UnsupportedCharacter(at_index, character)`: a character the chosen mode cannot encode.
+- `IncompatibleOptions(reason)`: combination not allowed, such as rMQR with Low ECC.
 
 ```gleam
 import qrkit
@@ -381,28 +361,25 @@ pub fn rejected() -> Bool {
 }
 ```
 
-`qrkit` re-exports `EncodeError` as a type alias for `error.EncodeError`, so the type name is reachable through either module. Because Gleam type aliases do not re-export their constructors, the variants themselves have to be pattern-matched via `qrkit/error` (or destructured by labelled field). The same rule applies to `ErrorCorrection` / `Symbol` / `ModePreference`, whose constructors live in `qrkit/types`.
+`qrkit.EncodeError` is a type alias, and Gleam aliases do not carry constructors, so match the variants through `qrkit/error`. The constructors of `ErrorCorrection`, `Symbol` and `ModePreference` likewise live in `qrkit/types`.
 
-## Targets
+CI tests both the Erlang and JavaScript targets. PNG rendering and Reed-Solomon are pure Gleam, with no NIF or native binary.
 
-Both the Erlang and JavaScript targets are exercised in CI on every push. Pure-Gleam internals mean no NIF / native binary is needed for PNG rendering or Reed-Solomon — `qrkit` runs anywhere Gleam runs.
-
-Full API reference: <https://hexdocs.pm/qrkit/>.
+API reference: <https://hexdocs.pm/qrkit/>.
 
 ## Scope and non-goals
 
-- qrkit encodes, and decodes module matrices. Finding a symbol in an image (detection, perspective correction, thresholding) is out of scope.
+- qrkit decodes module matrices, not photos. Finding a symbol in an image (detection, perspective correction, thresholding) is out of scope.
 - Kanji mode covers the characters of JIS X 0208. Characters outside it (CP932 extensions such as circled digits, and JIS X 0213 additions) are encoded in Byte mode as UTF-8.
 - Model 1 QR (the pre-1997 specification) is not implemented; only Model 2 (ISO/IEC 18004:2015), Micro QR, and rMQR.
-- The encoder does not normalise input (no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL-truncation). Whatever string you pass is the exact byte sequence that lands in the symbol's Byte segment.
-- A QR that encodes successfully is not guaranteed to scan in every environment. Real-world readability also depends on the quiet zone, contrast, module size, rendering or print scale, the output medium, and the scanner implementation. Test the chosen output against the target devices before deployment.
+- The encoder does not normalise input: no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL truncation. The string you pass is the byte sequence in the symbol.
+- Whether a symbol scans also depends on quiet zone, contrast, module size, print scale, medium and scanner. Test on the target devices.
 
 ## Safety notes
 
-- `qrkit` does not sanity-check the payload — if you stuff `javascript:` URIs, otpauth secrets, or attacker-controlled text into a QR, the receiving app will get exactly that. Validate before encoding.
-- The SVG renderer escapes caller-supplied `dark_color` / `light_color` values so a hostile colour cannot break out of the `fill="..."` attribute. That is the only escaping it performs; the surrounding `<svg>` document is not a sanitiser. Treat the output as untrusted markup when embedding it into arbitrary HTML, and pass it through a sanitiser such as DOMPurify on that boundary.
-- The library writes payload data into the matrix as-is. `EncodeError` variants never contain the input payload except for `UnsupportedCharacter`, which reports the single offending character; if that is a privacy concern (e.g., the QR carried a TOTP secret) handle the error before logging.
-- Every public encoding entry point returns `Result(_, EncodeError)`. Invalid or unsupported input surfaces as a typed error variant (`DataExceedsCapacity`, `InvalidVersion`, …) rather than a runtime crash.
+- qrkit does not check the payload. A `javascript:` URI, an otpauth secret or attacker-controlled text reaches the scanning app as is, so validate before encoding.
+- The SVG renderer escapes `dark_color` and `light_color` so they cannot break out of the `fill="..."` attribute, and does no other escaping. Run the output through a sanitiser such as DOMPurify before embedding it in untrusted HTML.
+- `EncodeError` never contains the payload, except `UnsupportedCharacter`, which reports the offending character. Handle that error before logging if the payload is secret, such as a TOTP seed.
 
 ## Testing
 
