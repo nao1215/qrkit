@@ -245,7 +245,7 @@ pub fn ecc_letter_for_quartile() -> String {
 
 ## Decode a module matrix
 
-`qrkit/decode` reads a Standard QR, Micro QR or rMQR symbol from rows of modules (the shape `qrkit.rows` returns) and corrects damaged codewords. It strips a light quiet zone, reads rotated and mirrored symbols, and interprets Byte data by its ECI or, without one, guesses between UTF-8, Shift JIS and ISO-8859-1 as zxing does.
+`qrkit/decode` reads a Standard QR, Micro QR or rMQR symbol from rows of modules (the shape `qrkit.rows` returns) and corrects damaged codewords. It strips a light quiet zone, reads rotated and mirrored symbols, and reads Byte data as ISO-8859-1 under ECI 1 or 3, Shift JIS under ECI 20 and UTF-8 under ECI 26. With any other ECI, or none, it guesses between UTF-8, Shift JIS and ISO-8859-1 as zxing does.
 
 ```gleam
 import qrkit
@@ -372,7 +372,7 @@ API reference: <https://hexdocs.pm/qrkit/>.
 - qrkit decodes module matrices, not photos. Finding a symbol in an image (detection, perspective correction, thresholding) is out of scope.
 - Kanji mode covers the characters of JIS X 0208. Characters outside it (CP932 extensions such as circled digits, and JIS X 0213 additions) are encoded in Byte mode as UTF-8.
 - Model 1 QR (the pre-1997 specification) is not implemented; only Model 2 (ISO/IEC 18004:2015), Micro QR, and rMQR.
-- The encoder does not normalise input: no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL truncation. The string you pass is the byte sequence in the symbol.
+- The encoder does not normalise input: no trimming, no Unicode normalisation, no `\r\n` ↔ `\n` rewrites, no NUL truncation. What you pass is what a reader decodes.
 - Whether a symbol scans also depends on quiet zone, contrast, module size, print scale, medium and scanner. Test on the target devices.
 
 ## Safety notes
