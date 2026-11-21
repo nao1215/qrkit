@@ -20,14 +20,6 @@ pub fn at_or(list: List(a), index: Int, default default: a) -> a {
   }
 }
 
-pub fn replace_at(list: List(a), index: Int, with replacement: a) -> List(a) {
-  case list, index {
-    [], _ -> []
-    [_, ..rest], 0 -> [replacement, ..rest]
-    [first, ..rest], i -> [first, ..replace_at(rest, i - 1, with: replacement)]
-  }
-}
-
 pub fn characters(text: String) -> List(String) {
   text
   |> string.to_utf_codepoints

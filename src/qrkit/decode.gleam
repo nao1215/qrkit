@@ -432,12 +432,13 @@ fn correct_blocks(
     case reed_solomon.correct(block, ec_count) {
       Ok(#(fixed, count)) ->
         Ok(#(
-          list.append(acc.0, list.take(fixed, list.length(fixed) - ec_count)),
+          [list.take(fixed, list.length(fixed) - ec_count), ..acc.0],
           acc.1 + count,
         ))
       Error(Nil) -> Error(TooManyErrors)
     }
   })
+  |> result.map(fn(acc) { #(list.flatten(list.reverse(acc.0)), acc.1) })
 }
 
 // --- Bit stream ------------------------------------------------------------
@@ -555,11 +556,13 @@ fn parse_segments(
   profile: Profile,
   state: State,
 ) -> Result(State, DecodeError) {
-  let remaining = list.length(bits)
+  // The data ends at a terminator, or where fewer bits than a terminator
+  // remain.
+  let head = list.take(bits, profile.terminator_bits)
   let at_end =
-    remaining < profile.terminator_bits
-    || list.all(list.take(bits, profile.terminator_bits), fn(bit) { !bit })
-  case remaining == 0 || at_end {
+    list.length(head) < profile.terminator_bits
+    || list.all(head, fn(bit) { !bit })
+  case bits == [] || at_end {
     True -> Ok(state)
     False -> {
       let #(indicator, rest) = list.split(bits, profile.indicator_bits)
@@ -699,10 +702,14 @@ fn read_numeric(
         2 -> #(2, 7)
         _ -> #(3, 10)
       }
-      use #(value, rest) <- result.try(take_int(bits, width, "Numeric"))
-      case value < power_of_ten(digits) {
-        False -> Error(MalformedData("Numeric group out of range"))
-        True ->
+      // A plain case rather than `use`, so the loop stays a tail call and a
+      // long segment does not grow the JavaScript stack.
+      let limit = power_of_ten(digits)
+      case take_int(bits, width, "Numeric") {
+        Error(error) -> Error(error)
+        Ok(#(value, _)) if value >= limit ->
+          Error(MalformedData("Numeric group out of range"))
+        Ok(#(value, rest)) ->
           read_numeric(
             rest,
             count - digits,
@@ -734,10 +741,17 @@ fn read_alphanumeric(
       Ok(#(acc <> char, rest))
     }
     _ -> {
-      use #(value, rest) <- result.try(take_int(bits, 11, "Alphanumeric"))
-      use first <- result.try(alphanumeric_char(value / 45))
-      use second <- result.try(alphanumeric_char(value % 45))
-      read_alphanumeric(rest, count - 2, acc <> first <> second)
+      let pair = {
+        use #(value, rest) <- result.try(take_int(bits, 11, "Alphanumeric"))
+        use first <- result.try(alphanumeric_char(value / 45))
+        use second <- result.try(alphanumeric_char(value % 45))
+        Ok(#(first <> second, rest))
+      }
+      // Recurse outside `use` so the loop stays a tail call.
+      case pair {
+        Error(error) -> Error(error)
+        Ok(#(text, rest)) -> read_alphanumeric(rest, count - 2, acc <> text)
+      }
     }
   }
 }

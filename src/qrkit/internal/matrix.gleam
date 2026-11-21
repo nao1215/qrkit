@@ -67,17 +67,19 @@ pub fn get(matrix: Matrix, row: Int, col: Int) -> Bool {
   set.contains(dark, row * width + col)
 }
 
+/// Flip the module when `value` holds. Whether it is reserved is unchanged.
 pub fn xor(matrix: Matrix, row: Int, col: Int, value: Bool) -> Matrix {
   case value {
     False -> matrix
-    True ->
-      set(
-        matrix,
-        row,
-        col,
-        !get(matrix, row, col),
-        reserved: is_reserved(matrix, row, col),
-      )
+    True -> {
+      let Matrix(width, height, dark, reserved) = matrix
+      let index = row * width + col
+      let next_dark = case set.contains(dark, index) {
+        True -> set.delete(dark, index)
+        False -> set.insert(dark, index)
+      }
+      Matrix(width, height, next_dark, reserved)
+    }
   }
 }
 
@@ -95,7 +97,7 @@ pub fn total_cells(matrix: Matrix) -> Int {
   width(matrix) * height(matrix)
 }
 
-fn rows(matrix: Matrix) -> List(List(Bool)) {
+pub fn rows(matrix: Matrix) -> List(List(Bool)) {
   build_rows(matrix, 0, [])
 }
 

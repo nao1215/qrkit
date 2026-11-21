@@ -334,7 +334,11 @@ fn create_codewords(
     True -> Error(DataExceedsCapacity(bitstream.length_bits(stream), capacity))
     False -> {
       let aligned = bitstream.pad_to_byte_boundary(stream)
-      let padded = pad_to_data(aligned, data_codewords(index, ecc))
+      let padded =
+        bitstream.append_pad_codewords(
+          aligned,
+          until: data_codewords(index, ecc),
+        )
       Ok(reed_solomon.encode_interleaved(
         bitstream.to_byte_list(padded),
         total_codewords: lookup_int(total_codewords_table, index),
@@ -356,31 +360,6 @@ fn append_terminator(
   case bits <= 0 {
     True -> stream
     False -> bitstream.append_bits(stream, 0, size: bits)
-  }
-}
-
-fn pad_to_data(
-  stream: bitstream.BitStream,
-  data_bytes: Int,
-) -> bitstream.BitStream {
-  do_pad_to_data(stream, data_bytes, 0)
-}
-
-fn do_pad_to_data(
-  stream: bitstream.BitStream,
-  data_bytes: Int,
-  index: Int,
-) -> bitstream.BitStream {
-  let current = list.length(bitstream.to_byte_list(stream))
-  case current >= data_bytes {
-    True -> stream
-    False -> {
-      let byte = case index % 2 == 0 {
-        True -> 0xEC
-        False -> 0x11
-      }
-      do_pad_to_data(bitstream.append_byte(stream, byte), data_bytes, index + 1)
-    }
   }
 }
 

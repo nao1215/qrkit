@@ -398,9 +398,9 @@ fn pad_to_capacity(
     // there would put 1100 into the error correction input that the symbol
     // never carries, and a reader would see one codeword error.
     True ->
-      pad_alternating(aligned, data_bytes_count - 1, 0)
+      bitstream.append_pad_codewords(aligned, until: data_bytes_count - 1)
       |> pad_zero(data_bytes_count)
-    False -> pad_alternating(aligned, data_bytes_count, 0)
+    False -> bitstream.append_pad_codewords(aligned, until: data_bytes_count)
   }
 }
 
@@ -408,31 +408,9 @@ fn pad_zero(
   stream: bitstream.BitStream,
   target_bytes: Int,
 ) -> bitstream.BitStream {
-  case list.length(bitstream.to_byte_list(stream)) >= target_bytes {
+  case bitstream.length_bits(stream) / 8 >= target_bytes {
     True -> stream
     False -> pad_zero(bitstream.append_byte(stream, 0), target_bytes)
-  }
-}
-
-fn pad_alternating(
-  stream: bitstream.BitStream,
-  target_bytes: Int,
-  index: Int,
-) -> bitstream.BitStream {
-  let current_bytes = list.length(bitstream.to_byte_list(stream))
-  case current_bytes >= target_bytes {
-    True -> stream
-    False -> {
-      let byte = case index % 2 == 0 {
-        True -> 0xEC
-        False -> 0x11
-      }
-      pad_alternating(
-        bitstream.append_byte(stream, byte),
-        target_bytes,
-        index + 1,
-      )
-    }
   }
 }
 

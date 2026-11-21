@@ -1,6 +1,7 @@
 //// Bit-level writer used by the standard QR encoder.
 
 import gleam/bit_array
+import gleam/int
 import gleam/list
 import qrkit/internal/util
 
@@ -37,6 +38,18 @@ pub fn pad_to_byte_boundary(stream: BitStream) -> BitStream {
     True -> stream
     False -> append_bits(stream, 0, size: 8 - remainder)
   }
+}
+
+/// Append the pad codewords 0xEC and 0x11 in turn until a byte-aligned
+/// `stream` holds `bytes` bytes.
+pub fn append_pad_codewords(stream: BitStream, until bytes: Int) -> BitStream {
+  let missing = bytes - length_bits(stream) / 8
+  int.range(from: 0, to: int.max(missing, 0), with: stream, run: fn(acc, i) {
+    case i % 2 {
+      0 -> append_byte(acc, 0xEC)
+      _ -> append_byte(acc, 0x11)
+    }
+  })
 }
 
 pub fn to_bit_array(stream: BitStream) -> BitArray {

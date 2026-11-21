@@ -1,7 +1,6 @@
 //// Standard QR Code encoder.
 
 import gleam/bit_array
-import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -206,7 +205,10 @@ fn finish_data_stream(
   case version.data_codewords(chosen_version, ecc) {
     Error(error) -> Error(error)
     Ok(data_codewords) ->
-      Ok(add_pad_bytes(padded, data_codewords) |> bitstream.to_byte_list)
+      Ok(
+        bitstream.append_pad_codewords(padded, until: data_codewords)
+        |> bitstream.to_byte_list,
+      )
   }
 }
 
@@ -220,34 +222,6 @@ fn add_terminator(
     False -> remaining
   }
   bitstream.append_bits(stream, 0, size: terminator_bits)
-}
-
-fn add_pad_bytes(
-  stream: bitstream.BitStream,
-  data_codewords: Int,
-) -> bitstream.BitStream {
-  do_add_pad_bytes(
-    stream,
-    data_codewords - list.length(bitstream.to_byte_list(stream)),
-    0,
-  )
-}
-
-fn do_add_pad_bytes(
-  stream: bitstream.BitStream,
-  remaining: Int,
-  index: Int,
-) -> bitstream.BitStream {
-  use <- bool.guard(when: remaining <= 0, return: stream)
-  let byte = case index % 2 == 0 {
-    True -> 0xEC
-    False -> 0x11
-  }
-  do_add_pad_bytes(
-    bitstream.append_byte(stream, byte),
-    remaining - 1,
-    index + 1,
-  )
 }
 
 fn interleave_blocks(
