@@ -3,7 +3,7 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import qrkit/error.{type EncodeError}
+import qrkit/error.{type EncodeError, InvalidEciDesignator}
 import qrkit/internal/bitstream
 import qrkit/internal/mode
 import qrkit/internal/util
@@ -107,10 +107,12 @@ pub fn append_to_stream(
   version: Int,
   eci: Option(Int),
 ) -> Result(bitstream.BitStream, EncodeError) {
-  let with_eci = case eci {
-    None -> stream
-    Some(value) -> append_eci(stream, value)
-  }
+  use with_eci <- result.try(case eci {
+    None -> Ok(stream)
+    Some(value) if value >= 0 && value <= 999_999 ->
+      Ok(append_eci(stream, value))
+    Some(value) -> Error(InvalidEciDesignator(value))
+  })
   append_segments(with_eci, segments, fn(segment_mode) {
     Ok(Header(
       mode.mode_bits(segment_mode),
@@ -299,8 +301,8 @@ fn build_segment(current_mode: Mode, text: String, index: Int) -> Segment {
   )
 }
 
-/// The ECI header for `designator`, which `qrkit.build` has checked is in
-/// 0..999999.
+/// The ECI header for `designator`, which `append_to_stream` has checked is
+/// in 0..999999.
 fn append_eci(
   stream: bitstream.BitStream,
   designator: Int,

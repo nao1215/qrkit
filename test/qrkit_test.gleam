@@ -824,6 +824,25 @@ pub fn reed_solomon_v1_m_iso_vector_test() -> Nil {
   ])
 }
 
+pub fn reed_solomon_generator_coefficients_test() -> Nil {
+  // The remainder of x^d divided by the degree-d generator is the generator
+  // without its leading 1, so encoding [1] pins the ISO/IEC 18004 Annex A
+  // coefficients.
+  reed_solomon.encode([1], 7)
+  |> should.equal([127, 122, 154, 164, 11, 68, 117])
+  reed_solomon.encode([1], 10)
+  |> should.equal([216, 194, 159, 111, 199, 94, 95, 113, 157, 193])
+  reed_solomon.encode([1], 15)
+  |> should.equal([
+    29, 196, 111, 163, 112, 74, 10, 105, 105, 139, 132, 151, 32, 134, 26,
+  ])
+  reed_solomon.encode([1], 20)
+  |> should.equal([
+    152, 185, 240, 5, 111, 99, 6, 220, 112, 150, 69, 36, 187, 22, 228, 198, 121,
+    121, 165, 174,
+  ])
+}
+
 // ---------------------------------------------------------------------------
 // Character-count indicator version bracket boundaries
 // (ISO/IEC 18004 Table 3 — Byte mode uses 8 bits for v1-9 and 16 bits for v10+;

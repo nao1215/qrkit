@@ -194,7 +194,7 @@ fn take_if_data(
   col: Int,
   acc: List(#(Int, Int)),
 ) -> List(#(Int, Int)) {
-  case is_reserved(matrix, row, col) {
+  case col < 0 || is_reserved(matrix, row, col) {
     True -> acc
     False -> [#(row, col), ..acc]
   }
