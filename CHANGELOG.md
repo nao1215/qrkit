@@ -4,13 +4,50 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-### Fixed
-
-- `decode.from_rows` overflowed the JavaScript stack on a long Numeric or Alphanumeric segment, such as a version 40 symbol of 7089 digits. It now reads them on both targets.
-
 ### Changed
 
+- Breaking: the whole API is now in the `qrkit` module. `qrkit/types`, `qrkit/error`, `qrkit/decode`, `qrkit/content` and `qrkit/render/ascii`, `png` and `svg` are removed, and so are the type aliases that re-exported their types.
+- Breaking: `QrCode`, `Decoded`, `VCard` and `CalendarEvent` are plain records and the render options are one `ImageOptions` record, so their getters and `with_*` setters are removed. Read fields directly and update `default_encode_options()` or `default_image_options()` with the record update syntax.
+- Breaking: `new`, `with_*` and `build` are replaced by `encode_with(text, EncodeOptions)`. `encode_split` takes labelled `max_version` and `error_correction` arguments and replaces `encode_split_with`.
+- Breaking: rendering is `to_terminal(qr, style:, margin:)` with `Blocks`, `InvertedBlocks` or `HalfBlocks`, and `to_svg` and `to_png` with `ImageOptions`. `light_color: None` gives a transparent background. The default SVG dark colour is now `#000000`, the same as PNG.
+- Breaking: `IncompatibleOptions(reason)` is replaced by `ErrorCorrectionNotSupported(symbol, error_correction)` and `EciNotSupported(symbol)`. A pinned Micro QR version that cannot hold a character returns `UnsupportedCharacter(at_index, character)`. A rectangular priority on a non-rMQR symbol is ignored instead of rejected.
+- Breaking: `MalformedData` no longer carries a reason string.
+- Breaking: `WifiSecurity` variants carry the password, so `wifi` no longer takes one for `Open`. Calendar events take `Timed(start, end)` with `gleam/time` timestamps or `AllDay(first, last)` with dates, where `last` is included. `gleam_time` is a new dependency.
+- Breaking: `package_version`, `module_at`, `MatrixAccessError`, `error_correction_designator` and `content.url` are removed.
 - The minimum `gleam_stdlib` version is now 0.69.0 (was 0.66.0, which was never published), the first release with `int.range`.
+- Encoding a large symbol is about 2.5 times faster and PNG output about 6 times faster.
+
+A 0.7.0 program such as
+
+```gleam
+qrkit.new("12345")
+|> qrkit.with_symbol(types.Micro)
+|> qrkit.with_ecc(types.Low)
+|> qrkit.build
+|> result.map(svg.to_string)
+```
+
+is now
+
+```gleam
+qrkit.encode_with(
+  "12345",
+  qrkit.EncodeOptions(
+    ..qrkit.default_encode_options(),
+    symbol: qrkit.Micro,
+    error_correction: qrkit.Low,
+  ),
+)
+|> result.map(qrkit.to_svg(_, qrkit.default_image_options()))
+```
+
+### Fixed
+
+- `geo` wrote very small or large coordinates in exponent notation (`geo:1.0e-7,...`). It now writes plain decimals.
+- Folded vCard and iCalendar continuation lines were 76 octets long. They are now at most 75, including the leading space.
+- A calendar time outside years 1..9999 kept its month and day when the year was clamped. It is now clamped to the first or last second of that range.
+
+- Decoding overflowed the JavaScript stack on a long Numeric or Alphanumeric segment, such as a version 40 symbol of 7089 digits. It now reads them on both targets.
 
 ## [0.7.0] - 2026-11-19
 

@@ -4,21 +4,21 @@ import gleam/bit_array
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import qrkit/error.{type EncodeError, DataExceedsCapacity}
 import qrkit/internal/bitstream
+import qrkit/internal/error.{type EncodeError, DataExceedsCapacity}
 import qrkit/internal/format_info
 import qrkit/internal/mask
 import qrkit/internal/matrix
 import qrkit/internal/reed_solomon
 import qrkit/internal/segment
+import qrkit/internal/types.{type ErrorCorrection, type ModePreference}
 import qrkit/internal/util
 import qrkit/internal/version
-import qrkit/types.{type ErrorCorrection, type ModePreference}
 
 /// Encode `text` as a Standard QR code.
 ///
 /// `exact_version` is `Some(N)` when the caller pinned the version with
-/// `qrkit.with_exact_version(N)`: the symbol is version N, and a payload that
+/// `EncodeOptions(version: Some(N))`: the symbol is version N, and a payload that
 /// does not fit returns an `Error`. When it is `None`, the encoder picks the
 /// smallest version in 1..40 that fits the payload.
 pub fn encode(

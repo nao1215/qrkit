@@ -2,7 +2,7 @@
 
 import gleam/int
 import gleam/list
-import qrkit/types.{type ErrorCorrection, High, Low, Medium, Quartile}
+import qrkit/internal/types.{type ErrorCorrection, High, Low, Medium, Quartile}
 
 const g15 = 0b10100110111
 

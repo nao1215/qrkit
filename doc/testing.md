@@ -25,7 +25,7 @@
 
 ## Differential testing
 
-The nightly `interop` job in `.github/workflows/nightly-property.yml` compares qrkit with independent implementations through `scripts/interop.py`. zxing-cpp must read random symbols qrkit writes (`test/gen/interop_corpus.gleam`), and qrkit/decode must read random symbols segno writes the way zxing-cpp reads them (`dev/gen/interop_decode.gleam`). The Python packages are installed from `scripts/interop-requirements.txt` with `pip --require-hashes`.
+The nightly `interop` job in `.github/workflows/nightly-property.yml` compares qrkit with independent implementations through `scripts/interop.py`. zxing-cpp must read random symbols qrkit writes (`test/gen/interop_corpus.gleam`), and `qrkit.decode` must read random symbols segno writes the way zxing-cpp reads them (`dev/gen/interop_decode.gleam`). The Python packages are installed from `scripts/interop-requirements.txt` with `pip --require-hashes`.
 
 ## Nightly runs
 

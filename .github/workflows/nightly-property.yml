@@ -10,7 +10,7 @@ name: nightly-property
 #   so the case can be reproduced with metamon.with_seed and kept as a
 #   regression test.
 # - interop: differential testing against independent implementations.
-#   zxing-cpp must read random symbols qrkit writes, and qrkit/decode must
+#   zxing-cpp must read random symbols qrkit writes, and qrkit.decode must
 #   read random symbols segno writes the way zxing-cpp reads them. A failure
 #   prints the input text.
 #
@@ -85,7 +85,7 @@ jobs:
           gleam run -m gen/interop_corpus
           python scripts/interop.py zxing build/interop/qrkit.tsv
 
-      - name: qrkit/decode reads symbols segno writes
+      - name: qrkit.decode reads symbols segno writes
         run: |
           set -e
           python scripts/interop.py segno build/interop/segno.tsv 2000

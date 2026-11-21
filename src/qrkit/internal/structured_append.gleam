@@ -9,15 +9,15 @@ import gleam/int
 import gleam/list
 import gleam/option.{None}
 import gleam/string
-import qrkit/error.{
+import qrkit/internal/bitstream
+import qrkit/internal/error.{
   type EncodeError, DataExceedsCapacity, EmptyInput, InvalidVersion,
 }
-import qrkit/internal/bitstream
 import qrkit/internal/matrix
 import qrkit/internal/standard
+import qrkit/internal/types.{type ErrorCorrection, Auto}
 import qrkit/internal/util
 import qrkit/internal/version
-import qrkit/types.{type ErrorCorrection, Auto}
 
 /// Upper bound on the number of shards allowed by ISO/IEC 18004 §8.2.
 const max_symbols: Int = 16

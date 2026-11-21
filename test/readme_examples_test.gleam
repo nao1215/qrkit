@@ -1,19 +1,13 @@
-//// Tests every code block in `README.md`. Each function below corresponds
-//// directly to a sample in the README — if you change the README, update
-//// these tests in lock-step.
+//// Tests the code blocks in `README.md` and the usage samples that used to
+//// live there. Keep the README blocks and the `readme_` functions in step.
 
 import gleam/bit_array
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
+import gleam/time/timestamp
 import gleeunit/should
 import qrkit
-import qrkit/content
-import qrkit/decode
-import qrkit/error
-import qrkit/render/ascii
-import qrkit/render/png
-import qrkit/render/svg
-import qrkit/types
 
 // ---------------------------------------------------------------------------
 // README: Hello, QR
@@ -26,31 +20,35 @@ fn readme_hello_qr() -> qrkit.QrCode {
 
 pub fn readme_hello_qr_test() -> Nil {
   let qr = readme_hello_qr()
-  ascii.to_string(qr)
+  qrkit.to_terminal(qr, style: qrkit.Blocks, margin: 4)
   |> string.is_empty
   |> should.be_false
 }
 
 // ---------------------------------------------------------------------------
-// README: Builder for ECC, version, and ECI
+// README: Options for ECC, exact version, and ECI
 // ---------------------------------------------------------------------------
 
 fn readme_high_density_qr() -> qrkit.QrCode {
   let assert Ok(qr) =
-    qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.with_exact_version(4)
-    |> qrkit.with_eci(26)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "https://github.com/sponsors/nao1215",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Quartile,
+        version: Some(4),
+        eci: Some(26),
+      ),
+    )
   qr
 }
 
 pub fn readme_high_density_qr_test() -> Nil {
   let qr = readme_high_density_qr()
-  qrkit.error_correction(qr)
-  |> should.equal(types.Quartile)
-  // with_exact_version pins the symbol version.
-  qrkit.version(qr)
+  qr.error_correction
+  |> should.equal(qrkit.Quartile)
+  // `version: Some(4)` pins the symbol version.
+  qr.version
   |> should.equal(4)
 }
 
@@ -60,7 +58,7 @@ pub fn readme_high_density_qr_test() -> Nil {
 
 fn readme_render_svg() -> String {
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  svg.to_string(qr)
+  qrkit.to_svg(qr, qrkit.default_image_options())
 }
 
 pub fn readme_render_svg_test() -> Nil {
@@ -73,15 +71,15 @@ pub fn readme_render_svg_test() -> Nil {
 
 fn readme_dark_themed_svg() -> String {
   let options =
-    svg.default_options()
-    |> svg.with_module_size(12)
-    |> svg.with_margin(2)
-    |> svg.with_dark_color("#22d3ee")
-    |> svg.with_light_color("#0f172a")
-    |> svg.with_background(True)
+    qrkit.ImageOptions(
+      module_size: 12,
+      margin: 2,
+      dark_color: "#22d3ee",
+      light_color: Some("#0f172a"),
+    )
 
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  svg.to_string_with(qr, options)
+  qrkit.to_svg(qr, options)
 }
 
 pub fn readme_dark_themed_svg_test() -> Nil {
@@ -98,7 +96,7 @@ pub fn readme_dark_themed_svg_test() -> Nil {
 
 fn readme_render_png_bytes() -> BitArray {
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  png.to_bit_array(qr, scale: 8, margin: 4)
+  qrkit.to_png(qr, qrkit.default_image_options())
 }
 
 pub fn readme_render_png_bytes_test() -> Nil {
@@ -114,7 +112,7 @@ pub fn readme_render_png_bytes_test() -> Nil {
 
 fn readme_compact_qr() -> String {
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  ascii.to_string_compact(qr)
+  qrkit.to_terminal(qr, style: qrkit.HalfBlocks, margin: 4)
 }
 
 pub fn readme_compact_qr_test() -> Nil {
@@ -153,14 +151,9 @@ pub fn readme_compact_qr_test() -> Nil {
 
 fn readme_wifi_qr_svg() -> String {
   let payload =
-    content.wifi(
-      ssid: "MyAP",
-      password: "secret",
-      security: content.Wpa2,
-      hidden: False,
-    )
+    qrkit.wifi(ssid: "MyAP", security: qrkit.Wpa2("secret"), hidden: False)
   let assert Ok(qr) = qrkit.encode(payload)
-  svg.to_string(qr)
+  qrkit.to_svg(qr, qrkit.default_image_options())
 }
 
 pub fn readme_wifi_qr_svg_test() -> Nil {
@@ -173,30 +166,31 @@ pub fn readme_wifi_qr_svg_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 fn readme_contact_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  content.vcard()
-  |> content.with_name("Naohiro Chikamatsu")
-  |> content.with_email("nao@example.com")
-  |> content.with_phone("+81-90-0000-0000")
-  |> content.with_url("https://github.com/nao1215")
-  |> content.vcard_to_string
+  qrkit.VCard(
+    ..qrkit.vcard("Naohiro Chikamatsu"),
+    email: Some("nao@example.com"),
+    phone: Some("+81-90-0000-0000"),
+    url: Some("https://github.com/nao1215"),
+  )
+  |> qrkit.vcard_to_string
   |> qrkit.encode
 }
 
 fn readme_mail_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  content.email(to: "you@example.com", subject: "Hi", body: "Quick note")
+  qrkit.email(to: "you@example.com", subject: "Hi", body: "Quick note")
   |> qrkit.encode
 }
 
 fn readme_sms_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  content.sms(to: "+819000000000", body: "Hello!") |> qrkit.encode
+  qrkit.sms(to: "+819000000000", body: "Hello!") |> qrkit.encode
 }
 
 fn readme_phone_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  content.phone("+819000000000") |> qrkit.encode
+  qrkit.phone("+819000000000") |> qrkit.encode
 }
 
 fn readme_map_pin_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  content.geo(latitude: 35.6812, longitude: 139.7671) |> qrkit.encode
+  qrkit.geo(latitude: 35.6812, longitude: 139.7671) |> qrkit.encode
 }
 
 pub fn readme_content_helpers_test() -> Nil {
@@ -213,22 +207,24 @@ pub fn readme_content_helpers_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 fn readme_meeting_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  // The RFC-required PRODID / UID / DTSTAMP properties added in
-  // qrkit content #14 grow the payload past what default-ECC
-  // encoding leaves room for at small versions, so the README
-  // example now constructs the builder with a Low ECC for the
-  // illustrative encode.
-  content.event(
-    title: "Sync",
-    start_unix: 1_778_752_800,
-    end_unix: 1_778_756_400,
+  // 2026-05-14 10:00 UTC, ends 11:00 UTC.
+  let time =
+    qrkit.Timed(
+      start: timestamp.from_unix_seconds(1_778_752_800),
+      end: timestamp.from_unix_seconds(1_778_756_400),
+    )
+  qrkit.CalendarEvent(
+    ..qrkit.calendar_event("Sync", time),
+    location: Some("Online"),
+    description: Some("Project sync meeting"),
   )
-  |> content.with_location("Online")
-  |> content.with_description("Project sync meeting")
-  |> content.event_to_string
-  |> qrkit.new
-  |> qrkit.with_ecc(types.Low)
-  |> qrkit.build
+  |> qrkit.calendar_event_to_string
+  |> qrkit.encode_with(
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      error_correction: qrkit.Low,
+    ),
+  )
 }
 
 pub fn readme_meeting_qr_test() -> Nil {
@@ -239,57 +235,31 @@ pub fn readme_meeting_qr_test() -> Nil {
 pub fn readme_meeting_qr_payload_matches_documented_times_test() -> Nil {
   // Payload now CRLF-terminated and carries the RFC-required
   // PRODID / UID / DTSTAMP properties (qrkit content #12, #14).
-  content.event(
-    title: "Sync",
-    start_unix: 1_778_752_800,
-    end_unix: 1_778_756_400,
+  qrkit.CalendarEvent(
+    ..qrkit.calendar_event(
+      "Sync",
+      qrkit.Timed(
+        timestamp.from_unix_seconds(1_778_752_800),
+        timestamp.from_unix_seconds(1_778_756_400),
+      ),
+    ),
+    location: Some("Online"),
+    description: Some("Project sync meeting"),
   )
-  |> content.with_location("Online")
-  |> content.with_description("Project sync meeting")
-  |> content.event_to_string
+  |> qrkit.calendar_event_to_string
   |> should.equal(
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:2592443-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Online\r\nDESCRIPTION:Project sync meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
   )
 }
 
 // ---------------------------------------------------------------------------
-// README: Inspect the matrix
-// ---------------------------------------------------------------------------
-
-fn readme_describe(qr: qrkit.QrCode) -> #(Int, Int, String, Bool) {
-  let assert Ok(top_left) = qrkit.module_at(qr, 0, 0)
-  #(
-    qrkit.version(qr),
-    qrkit.width(qr),
-    qrkit.error_correction_designator(qrkit.error_correction(qr)),
-    top_left,
-  )
-}
-
-fn readme_ecc_letter_for_quartile() -> String {
-  qrkit.error_correction_designator(types.Quartile)
-}
-
-pub fn readme_inspect_matrix_test() -> Nil {
-  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let #(version, size, letter, top_left) = readme_describe(qr)
-  version |> should.equal(1)
-  size |> should.equal(21)
-  letter |> should.equal("M")
-  top_left |> should.be_true
-
-  readme_ecc_letter_for_quartile()
-  |> should.equal("Q")
-}
-
-// ---------------------------------------------------------------------------
-// README: Micro QR
+// README: Decode a module matrix
 // ---------------------------------------------------------------------------
 
 fn readme_round_trip() -> Result(String, qrkit.DecodeError) {
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
-  case decode.from_rows(qrkit.rows(qr)) {
-    Ok(decoded) -> Ok(decode.text(decoded))
+  case qrkit.decode(qr.rows) {
+    Ok(decoded) -> Ok(decoded.text)
     Error(error) -> Error(error)
   }
 }
@@ -299,15 +269,23 @@ pub fn readme_round_trip_test() -> Nil {
   |> should.equal(Ok("https://github.com/sponsors/nao1215"))
 }
 
+// ---------------------------------------------------------------------------
+// README: Micro QR
+// ---------------------------------------------------------------------------
+
 fn readme_business_card_qr() -> String {
   let assert Ok(qr) =
-    qrkit.new("01234567")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_exact_version(2)
-    |> qrkit.with_ecc(types.Low)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "01234567",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        version: Some(2),
+        error_correction: qrkit.Low,
+      ),
+    )
 
-  svg.to_string(qr)
+  qrkit.to_svg(qr, qrkit.default_image_options())
 }
 
 pub fn readme_business_card_qr_test() -> Nil {
@@ -321,12 +299,17 @@ pub fn readme_business_card_qr_test() -> Nil {
 
 fn readme_label_qr() -> String {
   let assert Ok(qr) =
-    qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "https://github.com/sponsors/nao1215",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        error_correction: qrkit.Medium,
+        rectangular_priority: qrkit.ShortestHeight,
+      ),
+    )
 
-  svg.to_string(qr)
+  qrkit.to_svg(qr, qrkit.default_image_options())
 }
 
 pub fn readme_label_qr_test() -> Nil {
@@ -341,8 +324,9 @@ pub fn readme_label_qr_test() -> Nil {
 fn readme_split_long_message() -> List(String) {
   let payload = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
 
-  let assert Ok(shards) = qrkit.encode_split(payload, 2)
-  list.map(shards, ascii.to_string)
+  let assert Ok(shards) =
+    qrkit.encode_split(payload, max_version: 2, error_correction: qrkit.Medium)
+  list.map(shards, qrkit.to_terminal(_, style: qrkit.Blocks, margin: 4))
 }
 
 pub fn readme_split_long_message_test() -> Nil {
@@ -356,9 +340,10 @@ pub fn readme_split_long_message_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 fn readme_raw_byte_qr() -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  qrkit.new("123-ABC")
-  |> qrkit.with_mode_preference(types.ForceByte)
-  |> qrkit.build()
+  qrkit.encode_with(
+    "123-ABC",
+    qrkit.EncodeOptions(..qrkit.default_encode_options(), mode: qrkit.ForceByte),
+  )
 }
 
 pub fn readme_raw_byte_qr_test() -> Nil {
@@ -372,7 +357,7 @@ pub fn readme_raw_byte_qr_test() -> Nil {
 
 fn readme_rejected() -> Bool {
   case qrkit.encode("") {
-    Error(error.EmptyInput) -> True
+    Error(qrkit.EmptyInput) -> True
     _ -> False
   }
 }
@@ -380,4 +365,37 @@ fn readme_rejected() -> Bool {
 pub fn readme_rejected_test() -> Nil {
   readme_rejected()
   |> should.be_true
+}
+
+// ---------------------------------------------------------------------------
+// README: the first example and the options example
+// ---------------------------------------------------------------------------
+
+fn readme_label() -> Result(String, qrkit.EncodeError) {
+  let options =
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Rectangular,
+      rectangular_priority: qrkit.ShortestHeight,
+    )
+  case qrkit.encode_with("https://github.com/sponsors/nao1215", options) {
+    Ok(qr) ->
+      Ok(qrkit.to_svg(
+        qr,
+        qrkit.ImageOptions(..qrkit.default_image_options(), light_color: None),
+      ))
+    Error(error) -> Error(error)
+  }
+}
+
+pub fn readme_label_test() -> Nil {
+  let assert Ok(svg) = readme_label()
+  assert string.starts_with(svg, "<svg")
+  assert !string.contains(svg, "#ffffff")
+}
+
+pub fn readme_half_blocks_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
+  let text = qrkit.to_terminal(qr, style: qrkit.HalfBlocks, margin: 4)
+  assert string.contains(text, "▀")
 }

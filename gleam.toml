@@ -1,6 +1,6 @@
 name = "qrkit"
 version = "0.7.0"
-description = "Pure Gleam QR code generator with terminal, SVG, and PNG rendering."
+description = "QR code encoder and decoder in pure Gleam, with terminal, SVG and PNG output."
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "qrkit" }
 links = [
@@ -11,6 +11,7 @@ gleam = ">= 1.14.0"
 
 [dependencies]
 gleam_stdlib = ">= 0.69.0 and < 2.0.0"
+gleam_time = ">= 1.2.0 and < 2.0.0"
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

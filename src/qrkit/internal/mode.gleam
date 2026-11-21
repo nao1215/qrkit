@@ -6,11 +6,11 @@ import gleam/list
 import gleam/order
 import gleam/result
 import gleam/string
-import qrkit/error.{type EncodeError, UnsupportedCharacter}
 import qrkit/internal/bitstream
+import qrkit/internal/error.{type EncodeError, UnsupportedCharacter}
 import qrkit/internal/kanji_table
+import qrkit/internal/types.{type Mode, Alphanumeric, Byte, Kanji, Numeric}
 import qrkit/internal/util
-import qrkit/types.{type Mode, Alphanumeric, Byte, Kanji, Numeric}
 
 const alphanumeric_chars = [
   "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F",

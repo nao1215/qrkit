@@ -12,9 +12,9 @@
 
 import gleam/int
 import gleam/list
+import gleam/option.{Some}
 import gleeunit/should
 import qrkit
-import qrkit/types
 
 /// ISO/IEC 23941:2022 Table 8, per version R7x43 .. R17x139:
 /// #(blocks in group 1, data codewords per group-1 block,
@@ -105,10 +105,10 @@ pub fn every_rmqr_version_has_valid_reed_solomon_blocks_test() -> Nil {
   let checked =
     list.flatten([
       list.index_map(table8_m, fn(layout, index) {
-        check_symbol(index + 1, types.Medium, layout)
+        check_symbol(index + 1, qrkit.Medium, layout)
       }),
       list.index_map(table8_h, fn(layout, index) {
-        check_symbol(index + 1, types.High, layout)
+        check_symbol(index + 1, qrkit.High, layout)
       }),
     ])
   // Every version/level pair is exercised, and none of them fails.
@@ -119,17 +119,21 @@ pub fn every_rmqr_version_has_valid_reed_solomon_blocks_test() -> Nil {
 
 fn check_symbol(
   version: Int,
-  ecc: types.ErrorCorrection,
+  ecc: qrkit.ErrorCorrection,
   layout: #(Int, Int, Int, Int),
-) -> #(#(Int, types.ErrorCorrection), Bool) {
+) -> #(#(Int, qrkit.ErrorCorrection), Bool) {
   let assert Ok(qr) =
-    qrkit.new("ab")
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_ecc(ecc)
-    |> qrkit.with_exact_version(version)
-    |> qrkit.with_mode_preference(types.ForceByte)
-    |> qrkit.build
-  let codewords = read_codewords(qrkit.rows(qr))
+    qrkit.encode_with(
+      "ab",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        error_correction: ecc,
+        version: Some(version),
+        mode: qrkit.ForceByte,
+      ),
+    )
+  let codewords = read_codewords(qr.rows)
   #(#(version, ecc), blocks_are_valid(codewords, layout))
 }
 

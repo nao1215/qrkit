@@ -3,20 +3,19 @@
 
 import gleam/io
 import qrkit
-import qrkit/render/ascii
 
 pub fn main() -> Nil {
   let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
 
-  io.println("=== to_string (light terminal) ===")
-  io.println(ascii.to_string(qr))
+  io.println("=== Blocks (light terminal) ===")
+  io.println(qrkit.to_terminal(qr, style: qrkit.Blocks, margin: 4))
 
   io.println("")
-  io.println("=== with_inverse (dark terminal) ===")
-  io.println(ascii.with_inverse(qr))
+  io.println("=== InvertedBlocks (dark terminal) ===")
+  io.println(qrkit.to_terminal(qr, style: qrkit.InvertedBlocks, margin: 4))
 
   io.println("")
-  io.println("=== to_string_compact (half height) ===")
-  io.println(ascii.to_string_compact(qr))
+  io.println("=== HalfBlocks (half height) ===")
+  io.println(qrkit.to_terminal(qr, style: qrkit.HalfBlocks, margin: 4))
   Nil
 }
