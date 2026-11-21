@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.8.0] - 2026-11-22
+
 ### Changed
 
 - Breaking: the whole API is now in the `qrkit` module. `qrkit/types`, `qrkit/error`, `qrkit/decode`, `qrkit/content` and `qrkit/render/ascii`, `png` and `svg` are removed, and so are the type aliases that re-exported their types.
