@@ -1691,3 +1691,68 @@ pub fn geo_writes_plain_decimals_test() -> Nil {
   qrkit.geo(latitude: 1.0e21, longitude: -2.5e22)
   |> should.equal("geo:1000000000000000000000.0,-25000000000000000000000.0")
 }
+
+pub fn all_day_event_ending_before_it_starts_lasts_one_day_test() -> Nil {
+  let payload =
+    qrkit.calendar_event(
+      "Trip",
+      qrkit.AllDay(
+        first: calendar.Date(2026, calendar.March, 10),
+        last: calendar.Date(2026, calendar.March, 5),
+      ),
+    )
+    |> qrkit.calendar_event_to_string
+  assert string.contains(payload, "DTSTART;VALUE=DATE:20260310\r\n")
+  assert string.contains(payload, "DTEND;VALUE=DATE:20260311\r\n")
+}
+
+pub fn all_day_event_normalises_impossible_dates_test() -> Nil {
+  let payload =
+    qrkit.calendar_event(
+      "Leap",
+      qrkit.AllDay(
+        first: calendar.Date(2026, calendar.February, 30),
+        last: calendar.Date(2026, calendar.February, 30),
+      ),
+    )
+    |> qrkit.calendar_event_to_string
+  assert string.contains(payload, "DTSTART;VALUE=DATE:20260302\r\n")
+  assert string.contains(payload, "DTEND;VALUE=DATE:20260303\r\n")
+}
+
+pub fn timestamps_after_year_9999_are_clamped_to_its_last_second_test() -> Nil {
+  let payload =
+    qrkit.calendar_event(
+      "Far",
+      qrkit.Timed(
+        start: timestamp.from_unix_seconds(300_000_000_000),
+        end: timestamp.from_unix_seconds(300_000_000_000),
+      ),
+    )
+    |> qrkit.calendar_event_to_string
+  assert string.contains(payload, "DTSTART:99991231T235959Z\r\n")
+}
+
+pub fn folded_lines_are_at_most_75_octets_test() -> Nil {
+  let card =
+    qrkit.VCard(
+      ..qrkit.vcard("Ada"),
+      address: Some(string.repeat("a", 200) <> string.repeat("é", 50)),
+    )
+  qrkit.vcard_to_string(card)
+  |> string.split("\r\n")
+  |> list.all(fn(line) { string.byte_size(line) <= 75 })
+  |> should.be_true
+}
+
+pub fn ragged_rows_render_as_a_rectangle_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("hello")
+  let ragged = qrkit.QrCode(..qr, rows: [[True, False, True], [True]])
+  let padded =
+    qrkit.QrCode(..qr, rows: [[True, False, True], [True, False, False]])
+  let options = qrkit.default_image_options()
+  assert qrkit.to_png(ragged, options) == qrkit.to_png(padded, options)
+  assert qrkit.to_svg(ragged, options) == qrkit.to_svg(padded, options)
+  assert qrkit.to_terminal(ragged, style: qrkit.HalfBlocks, margin: 1)
+    == qrkit.to_terminal(padded, style: qrkit.HalfBlocks, margin: 1)
+}

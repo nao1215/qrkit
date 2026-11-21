@@ -44,6 +44,8 @@ qrkit.encode_with(
 ### Fixed
 
 - `geo` wrote very small or large coordinates in exponent notation (`geo:1.0e-7,...`). It now writes plain decimals.
+- Folded vCard and iCalendar continuation lines were 76 octets long. They are now at most 75, including the leading space.
+- A calendar time outside years 1..9999 kept its month and day when the year was clamped. It is now clamped to the first or last second of that range.
 
 - Decoding overflowed the JavaScript stack on a long Numeric or Alphanumeric segment, such as a version 40 symbol of 7089 digits. It now reads them on both targets.
 

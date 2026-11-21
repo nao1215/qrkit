@@ -15,6 +15,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import gleam/time/calendar
@@ -115,7 +116,8 @@ pub type EncodeError {
   /// The text does not fit in the requested or largest version.
   DataExceedsCapacity(bits_needed: Int, bits_available: Int)
   /// A pinned Micro QR version has no mode for this character. `at_index`
-  /// counts Unicode code points from 0.
+  /// counts Unicode code points from 0. With `ForceByte`, M1 and M2, which
+  /// have no Byte mode, report the first character.
   UnsupportedCharacter(at_index: Int, character: String)
   /// The symbol family has no such error correction level (rMQR takes
   /// Medium and High; Micro QR has no High, M1 only Low, M2 and M3 no
@@ -344,7 +346,8 @@ fn encode_error_from_internal(
 pub type TerminalStyle {
   /// Two full blocks per dark module, two spaces per light one.
   Blocks
-  /// `Blocks` with dark and light swapped, for dark-on-light terminals.
+  /// `Blocks` with dark and light swapped, for terminals with a dark
+  /// background.
   InvertedBlocks
   /// Half blocks, two module rows per line of text.
   HalfBlocks
@@ -383,10 +386,11 @@ pub fn to_terminal(
   margin margin: Int,
 ) -> String {
   let margin = int.max(margin, 0)
+  let rows = rectangular(qr.rows)
   case style {
-    Blocks -> terminal.blocks(qr.rows, margin:, dark: "██", light: "  ")
-    InvertedBlocks -> terminal.blocks(qr.rows, margin:, dark: "  ", light: "██")
-    HalfBlocks -> terminal.half_blocks(qr.rows, margin:)
+    Blocks -> terminal.blocks(rows, margin:, dark: "██", light: "  ")
+    InvertedBlocks -> terminal.blocks(rows, margin:, dark: "  ", light: "██")
+    HalfBlocks -> terminal.half_blocks(rows, margin:)
   }
 }
 
@@ -414,7 +418,7 @@ pub fn default_image_options() -> ImageOptions {
 pub fn to_svg(qr: QrCode, options: ImageOptions) -> String {
   let ImageOptions(module_size:, margin:, dark_color:, light_color:) = options
   svg.render(
-    qr.rows,
+    rectangular(qr.rows),
     module_size: int.max(module_size, 1),
     margin: int.max(margin, 0),
     dark_color:,
@@ -427,12 +431,25 @@ pub fn to_svg(qr: QrCode, options: ImageOptions) -> String {
 pub fn to_png(qr: QrCode, options: ImageOptions) -> BitArray {
   let ImageOptions(module_size:, margin:, dark_color:, light_color:) = options
   png.render(
-    qr.rows,
+    rectangular(qr.rows),
     module_size: int.max(module_size, 1),
     margin: int.max(margin, 0),
     dark_color:,
     light_color:,
   )
+}
+
+// Pads short rows with light modules, so a hand-built `QrCode` with rows of
+// different lengths still renders as a rectangle.
+fn rectangular(rows: List(List(Bool))) -> List(List(Bool)) {
+  let widths = list.map(rows, list.length)
+  let width = list.fold(widths, 0, int.max)
+  list.map2(rows, widths, fn(row, row_width) {
+    case row_width == width {
+      True -> row
+      False -> list.append(row, list.repeat(False, width - row_width))
+    }
+  })
 }
 
 // Decoding -------------------------------------------------------------------
@@ -674,16 +691,19 @@ pub fn calendar_event_to_string(event: CalendarEvent) -> String {
       "DTEND:" <> format_timestamp(end),
     )
     AllDay(first:, last:) -> {
+      // Going through a timestamp normalises dates such as 30 February, and
+      // a `last` before `first` becomes a one-day event.
       let start = midnight(first)
-      let end = midnight(last)
-      let #(day_after, _) =
-        timestamp.add(end, duration.hours(24))
-        |> timestamp.to_calendar(calendar.utc_offset)
+      let end = case timestamp.compare(midnight(last), start) {
+        order.Lt -> start
+        order.Eq | order.Gt -> midnight(last)
+      }
       #(
         start,
         end,
-        "DTSTART;VALUE=DATE:" <> format_date(first),
-        "DTEND;VALUE=DATE:" <> format_date(day_after),
+        "DTSTART;VALUE=DATE:" <> format_day(start),
+        "DTEND;VALUE=DATE:"
+          <> format_day(timestamp.add(end, duration.hours(24))),
       )
     }
   }
@@ -764,19 +784,28 @@ fn midnight(date: calendar.Date) -> timestamp.Timestamp {
 fn format_timestamp(time: timestamp.Timestamp) -> String {
   let #(date, calendar.TimeOfDay(hours:, minutes:, seconds:, nanoseconds: _)) =
     timestamp.to_calendar(time, calendar.utc_offset)
-  format_date(date)
-  <> "T"
-  <> pad(hours, 2)
-  <> pad(minutes, 2)
-  <> pad(seconds, 2)
-  <> "Z"
+  // The format has a 4-digit year, so times outside years 1..9999 are
+  // clamped to the first or last second of that range.
+  case date.year < 1, date.year > 9999 {
+    True, _ -> "00010101T000000Z"
+    _, True -> "99991231T235959Z"
+    _, _ ->
+      format_date(date)
+      <> "T"
+      <> pad(hours, 2)
+      <> pad(minutes, 2)
+      <> pad(seconds, 2)
+      <> "Z"
+  }
+}
+
+fn format_day(time: timestamp.Timestamp) -> String {
+  string.slice(format_timestamp(time), at_index: 0, length: 8)
 }
 
 fn format_date(date: calendar.Date) -> String {
   let calendar.Date(year:, month:, day:) = date
-  pad(clamp_year(year), 4)
-  <> pad(calendar.month_to_int(month), 2)
-  <> pad(day, 2)
+  pad(year, 4) <> pad(calendar.month_to_int(month), 2) <> pad(day, 2)
 }
 
 fn synthesise_uid(
@@ -1004,12 +1033,15 @@ fn escape_text(value: String) -> String {
 fn fold_line(line: String) -> String {
   case string.byte_size(line) <= 75 {
     True -> line
-    False -> fold_line_loop(string.to_graphemes(line), 0, [], [])
+    False -> fold_line_loop(string.to_graphemes(line), 75, 0, [], [])
   }
 }
 
+// `limit` is 75 octets for the first line and 74 after that, leaving room
+// for the leading space of a continuation line.
 fn fold_line_loop(
   graphemes: List(String),
+  limit: Int,
   current_bytes: Int,
   current_acc: List(String),
   folded_acc: List(String),
@@ -1022,31 +1054,21 @@ fn fold_line_loop(
     }
     [head, ..tail] -> {
       let head_bytes = string.byte_size(head)
-      case current_bytes + head_bytes > 75 {
+      case current_bytes + head_bytes > limit {
         True -> {
           let chunk = string.concat(list.reverse(current_acc))
-          fold_line_loop(tail, head_bytes, [head], [chunk, ..folded_acc])
+          fold_line_loop(tail, 74, head_bytes, [head], [chunk, ..folded_acc])
         }
         False ->
           fold_line_loop(
             tail,
+            limit,
             current_bytes + head_bytes,
             [head, ..current_acc],
             folded_acc,
           )
       }
     }
-  }
-}
-
-fn clamp_year(year: Int) -> Int {
-  // RFC 5545 §3.3.5 fixes the year at 4 digits. Values outside
-  // `[1, 9999]` are clamped rather than emitted with a 5-digit or
-  // negative year that breaks the fixed-width format.
-  case year < 1, year > 9999 {
-    True, _ -> 1
-    _, True -> 9999
-    _, _ -> year
   }
 }
 
