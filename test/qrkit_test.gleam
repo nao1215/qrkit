@@ -6,6 +6,7 @@ import gleeunit
 import gleeunit/should
 import qrkit
 import qrkit/content
+import qrkit/decode
 import qrkit/error
 import qrkit/internal/reed_solomon
 import qrkit/render/ascii
@@ -664,8 +665,10 @@ pub fn structured_append_with_level_test() -> Nil {
 
   { list.length(shards) >= 2 }
   |> should.be_true
-  list.map(shards, qrkit.error_correction)
-  |> list.all(fn(ecc) { ecc == types.High })
+  list.map(shards, fn(shard) {
+    decode.from_rows(qrkit.rows(shard)) |> result.map(decode.error_correction)
+  })
+  |> list.all(fn(level) { level == Ok(types.High) })
   |> should.be_true
 }
 
