@@ -80,7 +80,8 @@ pub type EncodeOptions {
     /// `None` picks the smallest version that holds the text.
     version: Option(Int),
     /// An ECI designator (0..999999) written before the data. Standard QR
-    /// only.
+    /// only. Byte data is always UTF-8, so `Some(26)` is the designator that
+    /// matches it; other values only change the header.
     eci: Option(Int),
     mode: ModePreference,
     /// Used only when `symbol` is `Rectangular` and `version` is `None`.
@@ -124,8 +125,17 @@ pub type EncodeError {
   EciNotSupported(symbol: Symbol)
 }
 
-/// Medium error correction, a Standard QR of the smallest version that
-/// fits, no ECI, `Auto` modes and `SmallestArea` for rMQR.
+/// Returns the options `encode` uses: Medium error correction, a Standard
+/// QR of the smallest version that fits, no ECI, `Auto` modes and
+/// `SmallestArea` for rMQR.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let options =
+///   qrkit.EncodeOptions(..qrkit.default_encode_options(), symbol: qrkit.Micro)
+/// ```
+///
 pub fn default_encode_options() -> EncodeOptions {
   EncodeOptions(
     error_correction: Medium,
@@ -137,13 +147,41 @@ pub fn default_encode_options() -> EncodeOptions {
   )
 }
 
-/// Encode `text` with `default_encode_options()`.
+/// Encodes `text` with `default_encode_options()`.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let assert Ok(qr) = qrkit.encode("https://example.com")
+/// assert qr.version == 2
+/// ```
+///
+/// ```gleam
+/// assert qrkit.encode("") == Error(qrkit.EmptyInput)
+/// ```
+///
 pub fn encode(text: String) -> Result(QrCode, EncodeError) {
   encode_with(text, default_encode_options())
 }
 
-/// Encode `text` with the given options. A pinned version that is too small
-/// returns an error instead of growing.
+/// Encodes `text` with the given options. A pinned version that is too
+/// small returns `DataExceedsCapacity` instead of growing.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let micro =
+///   qrkit.EncodeOptions(..qrkit.default_encode_options(), symbol: qrkit.Micro)
+/// let assert Ok(qr) = qrkit.encode_with("12345", micro)
+/// assert qr.width == 13
+/// ```
+///
+/// ```gleam
+/// let micro_high = qrkit.EncodeOptions(..micro, error_correction: qrkit.High)
+/// assert qrkit.encode_with("12345", micro_high)
+///   == Error(qrkit.ErrorCorrectionNotSupported(qrkit.Micro, qrkit.High))
+/// ```
+///
 pub fn encode_with(
   text: String,
   options: EncodeOptions,
@@ -178,10 +216,22 @@ pub fn encode_with(
   |> result.map_error(encode_error_from_internal)
 }
 
-/// Split `text` over Standard QR symbols of at most `max_version` with
-/// Structured Append (ISO/IEC 18004 §8.2), up to 16 symbols. Text that fits
-/// in one symbol gives a one-element list without the Structured Append
-/// header.
+/// Splits `text` over up to 16 Standard QR symbols of at most `max_version`
+/// that a reader joins back together (Structured Append). Text that fits in
+/// one symbol gives a list of one ordinary symbol.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let assert Ok(symbols) =
+///   qrkit.encode_split(
+///     string.repeat("0123456789", 8),
+///     max_version: 2,
+///     error_correction: qrkit.Medium,
+///   )
+/// assert list.length(symbols) == 2
+/// ```
+///
 pub fn encode_split(
   text: String,
   max_version max_version: Int,
@@ -317,8 +367,16 @@ pub type ImageOptions {
   )
 }
 
-/// Render `qr` as text with a quiet zone of `margin` modules (negative
+/// Renders `qr` as text with a quiet zone of `margin` modules (negative
 /// values are treated as 0). Scanners need a margin of 4.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let assert Ok(qr) = qrkit.encode("hello")
+/// io.println(qrkit.to_terminal(qr, style: qrkit.HalfBlocks, margin: 4))
+/// ```
+///
 pub fn to_terminal(
   qr: QrCode,
   style style: TerminalStyle,
@@ -332,7 +390,7 @@ pub fn to_terminal(
   }
 }
 
-/// 8 px modules, a 4-module quiet zone, black on white.
+/// Returns 8 px modules, a 4-module quiet zone, and black on white.
 pub fn default_image_options() -> ImageOptions {
   ImageOptions(
     module_size: 8,
@@ -342,7 +400,17 @@ pub fn default_image_options() -> ImageOptions {
   )
 }
 
-/// Render `qr` as an SVG document. The size comes from `qr.rows`.
+/// Renders `qr` as an SVG document. The size comes from `qr.rows`.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let assert Ok(qr) = qrkit.encode("hello")
+/// let options =
+///   qrkit.ImageOptions(..qrkit.default_image_options(), light_color: None)
+/// let svg = qrkit.to_svg(qr, options)
+/// ```
+///
 pub fn to_svg(qr: QrCode, options: ImageOptions) -> String {
   let ImageOptions(module_size:, margin:, dark_color:, light_color:) = options
   svg.render(
@@ -354,7 +422,8 @@ pub fn to_svg(qr: QrCode, options: ImageOptions) -> String {
   )
 }
 
-/// Render `qr` as PNG bytes (1-bit palette). The size comes from `qr.rows`.
+/// Renders `qr` as PNG bytes with a two-colour palette. The size comes from
+/// `qr.rows`.
 pub fn to_png(qr: QrCode, options: ImageOptions) -> BitArray {
   let ImageOptions(module_size:, margin:, dark_color:, light_color:) = options
   png.render(
@@ -406,10 +475,23 @@ pub type DecodeError {
   MalformedData
 }
 
-/// Read a Standard QR, Micro QR or rMQR symbol from rows of modules, `True`
+/// Reads a Standard QR, Micro QR or rMQR symbol from rows of modules, `True`
 /// for dark, such as `QrCode.rows`. A light quiet zone is removed first,
 /// and the symbol may be rotated or mirrored. This reads a grid of modules,
 /// not a photo.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let assert Ok(qr) = qrkit.encode("hello")
+/// let assert Ok(decoded) = qrkit.decode(qr.rows)
+/// assert decoded.text == "hello"
+/// ```
+///
+/// ```gleam
+/// assert qrkit.decode([[False]]) == Error(qrkit.NotASymbol(0, 0))
+/// ```
+///
 pub fn decode(rows: List(List(Bool))) -> Result(Decoded, DecodeError) {
   case internal_decode.decode(rows) {
     Ok(decoded) -> Ok(decoded_from_internal(decoded))
@@ -459,7 +541,15 @@ pub type WifiSecurity {
   Wpa3(password: String)
 }
 
-/// Build a `WIFI:` payload that phones read as "join this network".
+/// Builds a `WIFI:` payload that phones read as "join this network".
+///
+/// ## Examples
+///
+/// ```gleam
+/// assert qrkit.wifi(ssid: "home", security: qrkit.Wpa2("secret"), hidden: False)
+///   == "WIFI:T:WPA2;S:home;P:secret;;"
+/// ```
+///
 pub fn wifi(
   ssid ssid: String,
   security security: WifiSecurity,
@@ -500,7 +590,7 @@ pub type VCard {
   )
 }
 
-/// A card with only a name.
+/// Returns a card with only a name.
 pub fn vcard(name: String) -> VCard {
   VCard(
     name:,
@@ -513,8 +603,16 @@ pub fn vcard(name: String) -> VCard {
   )
 }
 
-/// Render a vCard 3.0 payload (RFC 2426): CRLF line ends, lines folded at
-/// 75 octets, TEXT values escaped.
+/// Renders a vCard 3.0 payload: CRLF line ends, lines folded at 75 octets,
+/// and `\`, `,`, `;` and newlines escaped.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let card = qrkit.VCard(..qrkit.vcard("Ada"), email: Some("ada@example.com"))
+/// let payload = qrkit.vcard_to_string(card)
+/// ```
+///
 pub fn vcard_to_string(card: VCard) -> String {
   let VCard(name:, phone:, email:, url:, organization:, title:, address:) = card
   let #(n_value, fn_value) = case name {
@@ -558,14 +656,14 @@ pub type CalendarEvent {
   )
 }
 
-/// An event with no location or description.
+/// Returns an event with no location or description.
 pub fn calendar_event(title: String, time: EventTime) -> CalendarEvent {
   CalendarEvent(title:, time:, location: None, description: None)
 }
 
-/// Render an iCalendar payload (RFC 5545) with one VEVENT. `UID` is derived
-/// from the title and times, and `DTSTAMP` is the start, so the same event
-/// always gives the same text. Years outside 1..9999 are clamped.
+/// Renders an iCalendar payload with one event. `UID` is derived from the
+/// title and times, and `DTSTAMP` is the start, so the same event always
+/// gives the same text. Years outside 1..9999 are clamped.
 pub fn calendar_event_to_string(event: CalendarEvent) -> String {
   let CalendarEvent(title:, time:, location:, description:) = event
   let #(start, end, start_line, end_line) = case time {
@@ -610,8 +708,15 @@ pub fn calendar_event_to_string(event: CalendarEvent) -> String {
   |> append_crlf
 }
 
-/// Build a `mailto:` payload (RFC 6068). The address keeps `@`, `,` and the
-/// RFC's `some-delims` literal; subject and body are percent-encoded.
+/// Builds a `mailto:` payload. The subject and body are percent-encoded.
+///
+/// ## Examples
+///
+/// ```gleam
+/// assert qrkit.email(to: "a@example.com", subject: "Hi there", body: "x")
+///   == "mailto:a@example.com?subject=Hi%20there&body=x"
+/// ```
+///
 pub fn email(
   to to: String,
   subject subject: String,
@@ -625,17 +730,25 @@ pub fn email(
   <> uri.percent_encode(body)
 }
 
-/// Build an `SMSTO:` payload.
+/// Builds an `SMSTO:` payload. The body is written as given.
 pub fn sms(to to: String, body body: String) -> String {
   "SMSTO:" <> to <> ":" <> body
 }
 
-/// Build a `tel:` URI.
+/// Builds a `tel:` URI from the number as given.
 pub fn phone(number: String) -> String {
   "tel:" <> number
 }
 
-/// Build a `geo:` URI. Coordinates are written in plain decimal notation.
+/// Builds a `geo:` URI in plain decimal notation. The coordinates are not
+/// range-checked.
+///
+/// ## Examples
+///
+/// ```gleam
+/// assert qrkit.geo(latitude: 35.0, longitude: 139.5) == "geo:35.0,139.5"
+/// ```
+///
 pub fn geo(latitude latitude: Float, longitude longitude: Float) -> String {
   "geo:" <> decimal(latitude) <> "," <> decimal(longitude)
 }
@@ -684,8 +797,8 @@ fn synthesise_uid(
   <> "@qrkit.nao1215"
 }
 
-/// `float.to_string` without exponent notation: Erlang writes `1.0e-7` and
-/// JavaScript `1e-7`, which geo readers do not accept.
+// `float.to_string` without exponent notation: Erlang writes `1.0e-7` and
+// JavaScript `1e-7`, which geo readers do not accept.
 fn decimal(value: Float) -> String {
   let text = float.to_string(value)
   case string.split_once(text, "e") {
@@ -886,12 +999,8 @@ fn escape_text(value: String) -> String {
   |> string.replace(each: ";", with: "\\;")
 }
 
-/// Fold one logical content line per RFC 5545 §3.1 / RFC 2426 §2.6:
-/// a line longer than 75 octets is split into 75-octet runs joined
-/// by `CRLF<space>`. Folding is performed at grapheme boundaries
-/// rather than raw bytes so multi-byte UTF-8 sequences are never
-/// split. The single-line case is a fast path that returns the
-/// input unchanged.
+// Splits a line longer than 75 octets into runs joined by CRLF and a space,
+// at grapheme boundaries so a UTF-8 sequence is never cut.
 fn fold_line(line: String) -> String {
   case string.byte_size(line) <= 75 {
     True -> line

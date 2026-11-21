@@ -1,10 +1,9 @@
-//// Tests every code block in `README.md`. Each function below corresponds
-//// directly to a sample in the README — if you change the README, update
-//// these tests in lock-step.
+//// Tests the code blocks in `README.md` and the usage samples that used to
+//// live there. Keep the README blocks and the `readme_` functions in step.
 
 import gleam/bit_array
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/string
 import gleam/time/timestamp
 import gleeunit/should
@@ -366,4 +365,37 @@ fn readme_rejected() -> Bool {
 pub fn readme_rejected_test() -> Nil {
   readme_rejected()
   |> should.be_true
+}
+
+// ---------------------------------------------------------------------------
+// README: the first example and the options example
+// ---------------------------------------------------------------------------
+
+fn readme_label() -> Result(String, qrkit.EncodeError) {
+  let options =
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Rectangular,
+      rectangular_priority: qrkit.ShortestHeight,
+    )
+  case qrkit.encode_with("https://github.com/sponsors/nao1215", options) {
+    Ok(qr) ->
+      Ok(qrkit.to_svg(
+        qr,
+        qrkit.ImageOptions(..qrkit.default_image_options(), light_color: None),
+      ))
+    Error(error) -> Error(error)
+  }
+}
+
+pub fn readme_label_test() -> Nil {
+  let assert Ok(svg) = readme_label()
+  assert string.starts_with(svg, "<svg")
+  assert !string.contains(svg, "#ffffff")
+}
+
+pub fn readme_half_blocks_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("https://github.com/sponsors/nao1215")
+  let text = qrkit.to_terminal(qr, style: qrkit.HalfBlocks, margin: 4)
+  assert string.contains(text, "▀")
 }
