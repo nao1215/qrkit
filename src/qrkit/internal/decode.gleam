@@ -1,26 +1,9 @@
 //// Decode a QR module matrix back into text.
 ////
-//// `from_rows` reads a Standard QR, Micro QR or rMQR symbol given as rows of
-//// modules (`True` is dark), the shape `qrkit.rows` returns. A light quiet
-//// zone around the symbol is removed first, and the symbol may be rotated or
-//// mirrored. Damaged codewords are repaired with Reed-Solomon error
-//// correction up to the level's capacity.
-////
-//// This reads a grid of modules, not a photo: locating a symbol in a camera
-//// image, perspective correction and thresholding are out of scope.
-////
-//// ```gleam
-//// import qrkit
-//// import qrkit/decode
-////
-//// pub fn round_trip() -> Result(String, Nil) {
-////   let assert Ok(qr) = qrkit.encode("https://example.com")
-////   case decode.from_rows(qrkit.rows(qr)) {
-////     Ok(decoded) -> Ok(decode.text(decoded))
-////     Error(_) -> Error(Nil)
-////   }
-//// }
-//// ```
+//// Reads a Standard QR, Micro QR or rMQR symbol given as rows of modules
+//// (`True` is dark). A light quiet zone around the symbol is removed first,
+//// and the symbol may be rotated or mirrored. Damaged codewords are repaired
+//// with Reed-Solomon error correction up to the level's capacity.
 
 import gleam/bit_array
 import gleam/int
@@ -29,11 +12,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
 import gleam/string
-import qrkit/error.{
+import qrkit/internal/bitstream
+import qrkit/internal/error.{
   type DecodeError, MalformedData, NotASymbol, TooManyErrors,
   UnreadableFormatInformation,
 }
-import qrkit/internal/bitstream
 import qrkit/internal/format_info
 import qrkit/internal/mask
 import qrkit/internal/micro
@@ -41,21 +24,17 @@ import qrkit/internal/mode
 import qrkit/internal/reed_solomon
 import qrkit/internal/rmqr
 import qrkit/internal/standard
-import qrkit/internal/version
-import qrkit/types.{
+import qrkit/internal/types.{
   type ErrorCorrection, type Mode, type Symbol, Alphanumeric, Byte, Kanji,
   Numeric,
 }
+import qrkit/internal/version
 
-/// The Structured Append header of a symbol that is one part of a split
-/// message: its 0-based `position`, the `total` number of symbols, and the
-/// `parity` byte of the whole message.
 pub type StructuredAppend {
   StructuredAppend(position: Int, total: Int, parity: Int)
 }
 
-/// A decoded symbol.
-pub opaque type Decoded {
+pub type Decoded {
   Decoded(
     text: String,
     symbol: Symbol,
@@ -68,50 +47,8 @@ pub opaque type Decoded {
   )
 }
 
-/// The decoded message.
-pub fn text(decoded: Decoded) -> String {
-  decoded.text
-}
-
-/// The symbol family that was read.
-pub fn symbol(decoded: Decoded) -> Symbol {
-  decoded.symbol
-}
-
-/// The version: 1..40 for Standard QR, 1..4 for Micro QR (M1..M4), 1..32 for
-/// rMQR (R7x43..R17x139), numbered as `qrkit.version` numbers them.
-pub fn version(decoded: Decoded) -> Int {
-  decoded.version
-}
-
-/// The error correction level from the format information.
-pub fn error_correction(decoded: Decoded) -> ErrorCorrection {
-  decoded.error_correction
-}
-
-/// The data mask from the format information (always 4 for rMQR, whose mask
-/// is fixed).
-pub fn mask(decoded: Decoded) -> Int {
-  decoded.mask
-}
-
-/// How many codewords Reed-Solomon error correction repaired.
-pub fn errors_corrected(decoded: Decoded) -> Int {
-  decoded.errors_corrected
-}
-
-/// The last ECI designator in the data, if any.
-pub fn eci(decoded: Decoded) -> Option(Int) {
-  decoded.eci
-}
-
-/// The Structured Append header, if the symbol is part of a split message.
-pub fn structured_append(decoded: Decoded) -> Option(StructuredAppend) {
-  decoded.structured_append
-}
-
 /// Decode a symbol given as rows of modules, `True` for dark.
-pub fn from_rows(rows: List(List(Bool))) -> Result(Decoded, DecodeError) {
+pub fn decode(rows: List(List(Bool))) -> Result(Decoded, DecodeError) {
   let trimmed = trim_quiet_zone(rows)
   case dimensions(trimmed) {
     Error(error) -> Error(error)
@@ -567,15 +504,11 @@ fn parse_segments(
     False -> {
       let #(indicator, rest) = list.split(bits, profile.indicator_bits)
       case profile.segment(bitstream.bits_to_int(indicator)) {
-        Error(Nil) ->
-          Error(MalformedData(
-            "unknown mode indicator "
-            <> int.to_string(bitstream.bits_to_int(indicator)),
-          ))
+        Error(Nil) -> Error(MalformedData)
         Ok(End) -> Ok(state)
         Ok(Fnc1First) -> parse_segments(rest, profile, state)
         Ok(Fnc1Second) -> {
-          use #(_, after) <- result.try(take_int(rest, 8, "FNC1 indicator"))
+          use #(_, after) <- result.try(take_int(rest, 8))
           parse_segments(after, profile, state)
         }
         Ok(EciSegment) -> {
@@ -587,21 +520,9 @@ fn parse_segments(
           )
         }
         Ok(StructuredAppendSegment) -> {
-          use #(position, after1) <- result.try(take_int(
-            rest,
-            4,
-            "Structured Append",
-          ))
-          use #(total, after2) <- result.try(take_int(
-            after1,
-            4,
-            "Structured Append",
-          ))
-          use #(parity, after3) <- result.try(take_int(
-            after2,
-            8,
-            "Structured Append",
-          ))
+          use #(position, after1) <- result.try(take_int(rest, 4))
+          use #(total, after2) <- result.try(take_int(after1, 4))
+          use #(parity, after3) <- result.try(take_int(after2, 8))
           parse_segments(
             after3,
             profile,
@@ -618,15 +539,9 @@ fn parse_segments(
         Ok(DataSegment(segment_mode)) -> {
           use width <- result.try(
             profile.count_bits(segment_mode)
-            |> result.replace_error(MalformedData(
-              "mode not allowed in this version",
-            )),
+            |> result.replace_error(MalformedData),
           )
-          use #(count, after) <- result.try(take_int(
-            rest,
-            width,
-            "character count",
-          ))
+          use #(count, after) <- result.try(take_int(rest, width))
           use #(next_state, after_data) <- result.try(read_data(
             segment_mode,
             count,
@@ -648,7 +563,7 @@ fn read_data(
 ) -> Result(#(State, List(Bool)), DecodeError) {
   case segment_mode {
     Byte -> {
-      use #(bytes, rest) <- result.try(take_values(bits, count, 8, "Byte"))
+      use #(bytes, rest) <- result.try(take_values(bits, count, 8))
       Ok(#(
         State(..state, pending_bytes: list.append(state.pending_bytes, bytes)),
         rest,
@@ -663,7 +578,7 @@ fn read_data(
       Ok(#(push(state, text), rest))
     }
     Kanji -> {
-      use #(values, rest) <- result.try(take_values(bits, count, 13, "Kanji"))
+      use #(values, rest) <- result.try(take_values(bits, count, 13))
       use text <- result.try(
         list.try_map(values, kanji_character) |> result.map(string.concat),
       )
@@ -705,10 +620,9 @@ fn read_numeric(
       // A plain case rather than `use`, so the loop stays a tail call and a
       // long segment does not grow the JavaScript stack.
       let limit = power_of_ten(digits)
-      case take_int(bits, width, "Numeric") {
+      case take_int(bits, width) {
         Error(error) -> Error(error)
-        Ok(#(value, _)) if value >= limit ->
-          Error(MalformedData("Numeric group out of range"))
+        Ok(#(value, _)) if value >= limit -> Error(MalformedData)
         Ok(#(value, rest)) ->
           read_numeric(
             rest,
@@ -736,13 +650,13 @@ fn read_alphanumeric(
   case count {
     0 -> Ok(#(acc, bits))
     1 -> {
-      use #(value, rest) <- result.try(take_int(bits, 6, "Alphanumeric"))
+      use #(value, rest) <- result.try(take_int(bits, 6))
       use char <- result.try(alphanumeric_char(value))
       Ok(#(acc <> char, rest))
     }
     _ -> {
       let pair = {
-        use #(value, rest) <- result.try(take_int(bits, 11, "Alphanumeric"))
+        use #(value, rest) <- result.try(take_int(bits, 11))
         use first <- result.try(alphanumeric_char(value / 45))
         use second <- result.try(alphanumeric_char(value % 45))
         Ok(#(first <> second, rest))
@@ -758,7 +672,7 @@ fn read_alphanumeric(
 
 fn alphanumeric_char(value: Int) -> Result(String, DecodeError) {
   mode.alphanumeric_char(value)
-  |> result.replace_error(MalformedData("Alphanumeric value out of range"))
+  |> result.replace_error(MalformedData)
 }
 
 fn kanji_character(value: Int) -> Result(String, DecodeError) {
@@ -776,7 +690,7 @@ fn kanji_character(value: Int) -> Result(String, DecodeError) {
 fn codepoint_string(codepoint: Int) -> Result(String, DecodeError) {
   case string.utf_codepoint(codepoint) {
     Ok(cp) -> Ok(string.from_utf_codepoints([cp]))
-    Error(Nil) -> Error(MalformedData("invalid code point"))
+    Error(Nil) -> Error(MalformedData)
   }
 }
 
@@ -910,22 +824,21 @@ fn shift_jis_text(bytes: List(Int), acc: String) -> String {
 
 fn read_eci(bits: List(Bool)) -> Result(#(Int, List(Bool)), DecodeError) {
   case bits {
-    [False, ..rest] -> take_int(rest, 7, "ECI")
-    [True, False, ..rest] -> take_int(rest, 14, "ECI")
-    [True, True, False, ..rest] -> take_int(rest, 21, "ECI")
-    _ -> Error(MalformedData("invalid ECI designator"))
+    [False, ..rest] -> take_int(rest, 7)
+    [True, False, ..rest] -> take_int(rest, 14)
+    [True, True, False, ..rest] -> take_int(rest, 21)
+    _ -> Error(MalformedData)
   }
 }
 
 fn take_int(
   bits: List(Bool),
   width: Int,
-  what: String,
 ) -> Result(#(Int, List(Bool)), DecodeError) {
   let #(head, rest) = list.split(bits, width)
   case list.length(head) == width {
     True -> Ok(#(bitstream.bits_to_int(head), rest))
-    False -> Error(MalformedData(what <> " segment is truncated"))
+    False -> Error(MalformedData)
   }
 }
 
@@ -933,7 +846,6 @@ fn take_values(
   bits: List(Bool),
   count: Int,
   width: Int,
-  what: String,
 ) -> Result(#(List(Int), List(Bool)), DecodeError) {
   let #(head, rest) = list.split(bits, count * width)
   case list.length(head) == count * width {
@@ -942,6 +854,6 @@ fn take_values(
         list.sized_chunk(head, width) |> list.map(bitstream.bits_to_int),
         rest,
       ))
-    False -> Error(MalformedData(what <> " segment is truncated"))
+    False -> Error(MalformedData)
   }
 }

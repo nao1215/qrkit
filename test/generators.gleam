@@ -2,7 +2,7 @@
 
 import metamon/generator
 import metamon/generator/range
-import qrkit/types
+import qrkit
 
 /// Strings mixing ASCII, digits, kana, kanji, Latin-1 letters, an emoji and
 /// newlines, so every encoding mode and segment boundary is exercised.
@@ -21,10 +21,10 @@ pub fn text() -> generator.Generator(String) {
   generator.string(char, range.constant(1, 40))
 }
 
-pub fn symbol() -> generator.Generator(types.Symbol) {
-  generator.element_of([types.Standard, types.Micro, types.Rectangular])
+pub fn symbol() -> generator.Generator(qrkit.Symbol) {
+  generator.element_of([qrkit.Standard, qrkit.Micro, qrkit.Rectangular])
 }
 
-pub fn ecc() -> generator.Generator(types.ErrorCorrection) {
-  generator.element_of([types.Low, types.Medium, types.Quartile, types.High])
+pub fn ecc() -> generator.Generator(qrkit.ErrorCorrection) {
+  generator.element_of([qrkit.Low, qrkit.Medium, qrkit.Quartile, qrkit.High])
 }

@@ -12,18 +12,20 @@ import metamon
 import metamon/generator
 import metamon/generator/range
 import qrkit
-import qrkit/decode
-import qrkit/types
 
 fn build(
   text: String,
-  symbol: types.Symbol,
-  ecc: types.ErrorCorrection,
+  symbol: qrkit.Symbol,
+  ecc: qrkit.ErrorCorrection,
 ) -> Result(qrkit.QrCode, qrkit.EncodeError) {
-  qrkit.new(text)
-  |> qrkit.with_symbol(symbol)
-  |> qrkit.with_ecc(ecc)
-  |> qrkit.build
+  qrkit.encode_with(
+    text,
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: symbol,
+      error_correction: ecc,
+    ),
+  )
 }
 
 pub fn encode_then_decode_round_trips_test() -> Nil {
@@ -36,16 +38,12 @@ pub fn encode_then_decode_round_trips_test() -> Nil {
     name: "encode_then_decode",
     encode: fn(input) {
       let #(text, symbol, ecc) = input
-      build(text, symbol, ecc) |> result.map(qrkit.rows)
+      build(text, symbol, ecc) |> result.map(fn(qr) { qr.rows })
     },
     decode: fn(rows) {
-      decode.from_rows(rows)
+      qrkit.decode(rows)
       |> result.map(fn(decoded) {
-        #(
-          decode.text(decoded),
-          decode.symbol(decoded),
-          decode.error_correction(decoded),
-        )
+        #(decoded.text, decoded.symbol, decoded.error_correction)
       })
     },
   )
@@ -64,10 +62,10 @@ pub fn one_damaged_module_is_corrected_test() -> Nil {
       case build(text, symbol, ecc) {
         Error(_) -> True
         Ok(qr) -> {
-          let target = index % { qrkit.width(qr) * qrkit.height(qr) }
-          let damaged = flip(qrkit.rows(qr), target, qrkit.width(qr))
-          case decode.from_rows(damaged) {
-            Ok(decoded) -> decode.text(decoded) == text
+          let target = index % { qr.width * qr.height }
+          let damaged = flip(qr.rows, target, qr.width)
+          case qrkit.decode(damaged) {
+            Ok(decoded) -> decoded.text == text
             Error(_) -> False
           }
         }
@@ -95,7 +93,7 @@ pub fn decoder_returns_for_arbitrary_grids_test() -> Nil {
       |> generator.map(fn(cells) { list.sized_chunk(cells, width) })
     })
   metamon.forall(grid, fn(rows) {
-    case decode.from_rows(rows) {
+    case qrkit.decode(rows) {
       Ok(_) -> True
       Error(_) -> True
     }
@@ -111,15 +109,15 @@ pub fn decoder_returns_for_heavily_damaged_symbols_test() -> Nil {
     ),
     fn(input) {
       let #(text, symbol, targets) = input
-      case build(text, symbol, types.Medium) {
+      case build(text, symbol, qrkit.Medium) {
         Error(_) -> True
         Ok(qr) -> {
-          let cells = qrkit.width(qr) * qrkit.height(qr)
+          let cells = qr.width * qr.height
           let damaged =
-            list.fold(targets, qrkit.rows(qr), fn(rows, t) {
-              flip(rows, t % cells, qrkit.width(qr))
+            list.fold(targets, qr.rows, fn(rows, t) {
+              flip(rows, t % cells, qr.width)
             })
-          case decode.from_rows(damaged) {
+          case qrkit.decode(damaged) {
             Ok(_) -> True
             Error(_) -> True
           }

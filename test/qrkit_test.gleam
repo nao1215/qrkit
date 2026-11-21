@@ -1,103 +1,61 @@
 import gleam/bit_array
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
+import gleam/time/calendar
+import gleam/time/timestamp
 import gleeunit
 import gleeunit/should
 import qrkit
-import qrkit/content
-import qrkit/decode
-import qrkit/error
 import qrkit/internal/reed_solomon
-import qrkit/render/ascii
-import qrkit/render/png
-import qrkit/render/svg
-import qrkit/types
-import simplifile
 
 pub fn main() -> Nil {
   gleeunit.main()
 }
 
-pub fn package_version_test() -> Nil {
-  // Treat `gleam.toml` as the release metadata source of truth and
-  // cross-check the runtime-visible version against it. When a release
-  // bumps `gleam.toml` but forgets to bump `qrkit.package_version`,
-  // this test fails CI immediately rather than letting drift ship to
-  // Hex. See #2.
-  let assert Ok(toml) = simplifile.read("gleam.toml")
-  let assert Ok(version_in_toml) = extract_toml_version(toml)
-  qrkit.package_version()
-  |> should.equal(version_in_toml)
-}
-
-fn extract_toml_version(toml: String) -> Result(String, Nil) {
-  // `gleam.toml` always pins the package version with a line of the
-  // form `version = "X.Y.Z"`. Grab the first such line and pull out
-  // the quoted value.
-  toml
-  |> string.split("\n")
-  |> list.find(fn(line) { string.starts_with(string.trim(line), "version = ") })
-  |> result.try(fn(line) {
-    case string.split_once(line, "\"") {
-      Ok(#(_, after_open)) ->
-        case string.split_once(after_open, "\"") {
-          Ok(#(value, _)) -> Ok(value)
-          Error(_) -> Error(Nil)
-        }
-      Error(_) -> Error(Nil)
-    }
-  })
-}
-
 fn must_module_at(qr: qrkit.QrCode, x: Int, y: Int) -> Bool {
-  let assert Ok(value) = qrkit.module_at(qr, x, y)
+  let assert [row, ..] = list.drop(qr.rows, y)
+  let assert [value, ..] = list.drop(row, x)
   value
 }
 
 pub fn encode_returns_square_symbol_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  qrkit.width(qr)
-  |> should.equal(qrkit.height(qr))
+  qr.width
+  |> should.equal(qr.height)
 }
 
 pub fn builder_accepts_explicit_ecc_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("https://github.com/sponsors/nao1215")
-    |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "https://github.com/sponsors/nao1215",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Quartile,
+      ),
+    )
 
-  qrkit.error_correction(qr)
-  |> should.equal(types.Quartile)
+  qr.error_correction
+  |> should.equal(qrkit.Quartile)
 }
 
 pub fn empty_input_is_rejected_test() -> Nil {
   qrkit.encode("")
-  |> should.equal(Error(error.EmptyInput))
-}
-
-pub fn url_content_helper_test() -> Nil {
-  content.url("https://example.com/?q=a b")
-  |> should.equal("https://example.com/?q=a b")
+  |> should.equal(Error(qrkit.EmptyInput))
 }
 
 pub fn wifi_content_helper_test() -> Nil {
-  content.wifi(
-    ssid: "MyAP",
-    password: "secret",
-    security: content.Wpa2,
-    hidden: False,
-  )
+  qrkit.wifi(ssid: "MyAP", security: qrkit.Wpa2("secret"), hidden: False)
   |> should.equal("WIFI:T:WPA2;S:MyAP;P:secret;;")
 }
 
 pub fn wifi_escapes_reserved_chars_test() -> Nil {
   // Per the Apple Engineering / ZXing WIFI URI grammar, `\`, `;`, `,`, `:`,
   // and `"` must be backslash-escaped inside SSID and password fields.
-  content.wifi(
+  qrkit.wifi(
     ssid: "Cafe \"Espresso\"",
-    password: "p;w:d,\\\"",
-    security: content.Wpa2,
+    security: qrkit.Wpa2("p;w:d,\\\""),
     hidden: False,
   )
   |> should.equal(
@@ -110,31 +68,39 @@ pub fn mixed_content_falls_back_to_byte_mode_test() -> Nil {
   // accumulated too many mode switches; the encoder now falls back to a
   // single Byte segment when that is cheaper.
   let payload =
-    content.vcard()
-    |> content.with_name("Naohiro Chikamatsu")
-    |> content.with_organization("Open Source")
-    |> content.with_title("Software Engineer")
-    |> content.with_email("nao@example.com")
-    |> content.with_phone("+81-90-0000-0000")
-    |> content.with_url("https://github.com/nao1215")
-    |> content.with_address("Tokyo, Japan")
-    |> content.vcard_to_string
+    qrkit.VCard(
+      ..qrkit.vcard("Naohiro Chikamatsu"),
+      organization: Some("Open Source"),
+      title: Some("Software Engineer"),
+      email: Some("nao@example.com"),
+      phone: Some("+81-90-0000-0000"),
+      url: Some("https://github.com/nao1215"),
+      address: Some("Tokyo, Japan"),
+    )
+    |> qrkit.vcard_to_string
   let assert Ok(qr) =
-    qrkit.new(payload) |> qrkit.with_ecc(types.Quartile) |> qrkit.build
-  qrkit.symbol(qr)
-  |> should.equal(types.Standard)
-  { qrkit.version(qr) <= 40 }
+    qrkit.encode_with(
+      payload,
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Quartile,
+      ),
+    )
+  qr.symbol
+  |> should.equal(qrkit.Standard)
+  { qr.version <= 40 }
   |> should.be_true
 }
 
 pub fn vcard_content_helper_test() -> Nil {
   // RFC 2426 §2.1: CRLF line terminator. The renderer also always
   // emits N and FN (mandatory per §3.1.1 / §3.1.2).
-  content.vcard()
-  |> content.with_name("Nao")
-  |> content.with_phone("+81-90-0000-0000")
-  |> content.with_email("nao@example.com")
-  |> content.vcard_to_string()
+  qrkit.VCard(
+    ..qrkit.vcard("Nao"),
+    phone: Some("+81-90-0000-0000"),
+    email: Some("nao@example.com"),
+  )
+  |> qrkit.vcard_to_string()
   |> should.equal(
     "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\r\nFN:Nao\r\nTEL:+81-90-0000-0000\r\nEMAIL:nao@example.com\r\nEND:VCARD\r\n",
   )
@@ -143,8 +109,8 @@ pub fn vcard_content_helper_test() -> Nil {
 // Issue #15: vcard_to_string always emits the RFC 2426 MANDATORY N
 // and FN properties even when the caller did not set a name.
 pub fn vcard_emits_required_n_and_fn_when_name_missing_test() -> Nil {
-  content.vcard()
-  |> content.vcard_to_string()
+  qrkit.vcard("")
+  |> qrkit.vcard_to_string()
   |> should.equal(
     "BEGIN:VCARD\r\nVERSION:3.0\r\nN:;;;;\r\nFN:\r\nEND:VCARD\r\n",
   )
@@ -155,7 +121,7 @@ pub fn email_content_percent_encodes_reserved_chars_test() -> Nil {
   // Subject / body keep the wider RFC 3986 percent-encoding the
   // stdlib provides so `?` / `&` / `#` / space / `%` are still
   // escaped in those hfvalues.
-  content.email(
+  qrkit.email(
     to: "you@example.com",
     subject: "status & next?",
     body: "100% ready = yes\nship it",
@@ -170,11 +136,11 @@ pub fn email_content_percent_encodes_reserved_chars_test() -> Nil {
 // encoded; `@` is kept literal because it is the addr-spec
 // separator per RFC 6068 §2.
 pub fn email_to_with_reserved_chars_is_escaped_test() -> Nil {
-  content.email(to: "a?b@c.com", subject: "S", body: "B")
+  qrkit.email(to: "a?b@c.com", subject: "S", body: "B")
   |> should.equal("mailto:a%3Fb@c.com?subject=S&body=B")
-  content.email(to: "a&b@c.com", subject: "S", body: "B")
+  qrkit.email(to: "a&b@c.com", subject: "S", body: "B")
   |> should.equal("mailto:a%26b@c.com?subject=S&body=B")
-  content.email(to: "a#b@c.com", subject: "S", body: "B")
+  qrkit.email(to: "a#b@c.com", subject: "S", body: "B")
   |> should.equal("mailto:a%23b@c.com?subject=S&body=B")
 }
 
@@ -182,11 +148,7 @@ pub fn email_to_with_reserved_chars_is_escaped_test() -> Nil {
 // RFC 6068 §2 — over-encoding it to `%40` broke canonical-form
 // matching in some QR-handler whitelists.
 pub fn email_to_keeps_at_literal_test() -> Nil {
-  content.email(
-    to: "user+tag@example.com",
-    subject: "Q & A",
-    body: "Hi#fragment",
-  )
+  qrkit.email(to: "user+tag@example.com", subject: "Q & A", body: "Hi#fragment")
   |> should.equal(
     "mailto:user+tag@example.com?subject=Q%20%26%20A&body=Hi%23fragment",
   )
@@ -196,7 +158,7 @@ pub fn email_to_keeps_at_literal_test() -> Nil {
 // in the addr-spec (sub-addressing tags like `user+tag` must survive
 // the round-trip).
 pub fn email_to_keeps_plus_literal_test() -> Nil {
-  content.email(to: "user+tag@example.com", subject: "", body: "")
+  qrkit.email(to: "user+tag@example.com", subject: "", body: "")
   |> should.equal("mailto:user+tag@example.com?subject=&body=")
 }
 
@@ -204,7 +166,7 @@ pub fn email_to_keeps_plus_literal_test() -> Nil {
 // RFC 6068 §2, so it must stay literal — encoding it would merge two
 // recipients into a single malformed local-part.
 pub fn email_to_comma_recipient_separator_test() -> Nil {
-  content.email(to: "a@x.com,b@y.com", subject: "S", body: "B")
+  qrkit.email(to: "a@x.com,b@y.com", subject: "S", body: "B")
   |> should.equal("mailto:a@x.com,b@y.com?subject=S&body=B")
 }
 
@@ -213,17 +175,15 @@ pub fn email_to_comma_recipient_separator_test() -> Nil {
 // to `?` / `&` / `#` / space / `%` — only the `to` encoder was
 // narrowed.
 pub fn email_subject_body_still_encoded_test() -> Nil {
-  content.email(to: "u@e.com", subject: "a?b&c#d e", body: "x?y&z#w v")
+  qrkit.email(to: "u@e.com", subject: "a?b&c#d e", body: "x?y&z#w v")
   |> should.equal(
     "mailto:u@e.com?subject=a%3Fb%26c%23d%20e&body=x%3Fy%26z%23w%20v",
   )
 }
 
 pub fn vcard_escapes_reserved_chars_test() -> Nil {
-  content.vcard()
-  |> content.with_name("Nao;Inc,\nDev")
-  |> content.with_address("Tokyo;JP,\nLine2")
-  |> content.vcard_to_string()
+  qrkit.VCard(..qrkit.vcard("Nao;Inc,\nDev"), address: Some("Tokyo;JP,\nLine2"))
+  |> qrkit.vcard_to_string()
   |> should.equal(
     "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Nao\\;Inc\\,\\nDev\r\nFN:Nao\\;Inc\\,\\nDev\r\nADR:Tokyo\\;JP\\,\\nLine2\r\nEND:VCARD\r\n",
   )
@@ -233,15 +193,13 @@ pub fn vcard_escapes_reserved_chars_test() -> Nil {
 // (RFC 5545 §3.3.11 / RFC 2426 §2.4.2 forbid them; CR in particular
 // breaks line termination by emulating CRLF inside a value).
 pub fn vcard_escape_strips_raw_cr_and_nul_test() -> Nil {
-  content.vcard()
-  |> content.with_name("A\rB")
-  |> content.vcard_to_string()
+  qrkit.vcard("A\rB")
+  |> qrkit.vcard_to_string()
   |> should.equal(
     "BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n",
   )
-  content.vcard()
-  |> content.with_name("A\u{0000}B")
-  |> content.vcard_to_string()
+  qrkit.vcard("A\u{0000}B")
+  |> qrkit.vcard_to_string()
   |> should.equal(
     "BEGIN:VCARD\r\nVERSION:3.0\r\nN:AB\r\nFN:AB\r\nEND:VCARD\r\n",
   )
@@ -252,14 +210,18 @@ pub fn calendar_event_escapes_text_fields_test() -> Nil {
   // DTSTAMP are required (#14). UID is a deterministic synthesis of
   // (title-hash, start, end); DTSTAMP defaults to start_unix
   // (no clock is available in a pure renderer).
-  content.event(
-    title: "Sync;One,Two",
-    start_unix: 1_778_752_800,
-    end_unix: 1_778_756_400,
+  qrkit.CalendarEvent(
+    ..qrkit.calendar_event(
+      "Sync;One,Two",
+      qrkit.Timed(
+        timestamp.from_unix_seconds(1_778_752_800),
+        timestamp.from_unix_seconds(1_778_756_400),
+      ),
+    ),
+    location: Some("Room;A,\nTokyo"),
+    description: Some("Line1\nLine2;done,ok"),
   )
-  |> content.with_location("Room;A,\nTokyo")
-  |> content.with_description("Line1\nLine2;done,ok")
-  |> content.event_to_string()
+  |> qrkit.calendar_event_to_string()
   |> should.equal(
     "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//nao1215//qrkit//EN\r\nBEGIN:VEVENT\r\nUID:1868597102-1778752800-1778756400@qrkit.nao1215\r\nDTSTAMP:20260514T100000Z\r\nSUMMARY:Sync\\;One\\,Two\r\nDTSTART:20260514T100000Z\r\nDTEND:20260514T110000Z\r\nLOCATION:Room\\;A\\,\\nTokyo\r\nDESCRIPTION:Line1\\nLine2\\;done\\,ok\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
   )
@@ -268,8 +230,14 @@ pub fn calendar_event_escapes_text_fields_test() -> Nil {
 // Issue #14: event_to_string emits PRODID + UID + DTSTAMP.
 pub fn calendar_event_includes_required_properties_test() -> Nil {
   let s =
-    content.event(title: "X", start_unix: 0, end_unix: 0)
-    |> content.event_to_string
+    qrkit.calendar_event(
+      "X",
+      qrkit.Timed(
+        timestamp.from_unix_seconds(0),
+        timestamp.from_unix_seconds(0),
+      ),
+    )
+    |> qrkit.calendar_event_to_string
   s
   |> string.contains("PRODID:")
   |> should.be_true
@@ -286,9 +254,14 @@ pub fn calendar_event_includes_required_properties_test() -> Nil {
 // non-inclusive end for DATE-valued events.
 pub fn calendar_event_all_day_dtend_non_inclusive_test() -> Nil {
   let s =
-    content.event(title: "x", start_unix: 0, end_unix: 0)
-    |> content.with_all_day(True)
-    |> content.event_to_string
+    qrkit.calendar_event(
+      "x",
+      qrkit.AllDay(
+        calendar.Date(1970, calendar.January, 1),
+        calendar.Date(1970, calendar.January, 1),
+      ),
+    )
+    |> qrkit.calendar_event_to_string
   s
   |> string.contains("DTSTART;VALUE=DATE:19700101")
   |> should.be_true
@@ -301,8 +274,14 @@ pub fn calendar_event_all_day_dtend_non_inclusive_test() -> Nil {
 // not go negative.
 pub fn calendar_event_negative_unix_formats_correctly_test() -> Nil {
   let s =
-    content.event(title: "x", start_unix: -1, end_unix: -1)
-    |> content.event_to_string
+    qrkit.calendar_event(
+      "x",
+      qrkit.Timed(
+        timestamp.from_unix_seconds(-1),
+        timestamp.from_unix_seconds(-1),
+      ),
+    )
+    |> qrkit.calendar_event_to_string
   // -1 second past epoch = 1969-12-31 23:59:59 UTC.
   s
   |> string.contains("DTSTART:19691231T235959Z")
@@ -315,12 +294,14 @@ pub fn calendar_event_negative_unix_formats_correctly_test() -> Nil {
 pub fn calendar_event_year_clamps_to_4_digit_range_test() -> Nil {
   // 253_402_300_800 unix = Jan 1, 10000 UTC -> clamped to year 9999.
   let s_y10k =
-    content.event(
-      title: "x",
-      start_unix: 253_402_300_800,
-      end_unix: 253_402_300_800,
+    qrkit.calendar_event(
+      "x",
+      qrkit.Timed(
+        timestamp.from_unix_seconds(253_402_300_800),
+        timestamp.from_unix_seconds(253_402_300_800),
+      ),
     )
-    |> content.event_to_string
+    |> qrkit.calendar_event_to_string
   s_y10k
   |> string.contains("DTSTART:9999")
   |> should.be_true
@@ -328,12 +309,14 @@ pub fn calendar_event_year_clamps_to_4_digit_range_test() -> Nil {
   // year 1, so the renderer clamps to year 0001 rather than emitting
   // a 0-prefixed year that breaks the RFC 5545 fixed-width format.
   let s_pre_y1 =
-    content.event(
-      title: "x",
-      start_unix: -62_167_219_200,
-      end_unix: -62_167_219_200,
+    qrkit.calendar_event(
+      "x",
+      qrkit.Timed(
+        timestamp.from_unix_seconds(-62_167_219_200),
+        timestamp.from_unix_seconds(-62_167_219_200),
+      ),
     )
-    |> content.event_to_string
+    |> qrkit.calendar_event_to_string
   s_pre_y1
   |> string.contains("DTSTART:0001")
   |> should.be_true
@@ -341,7 +324,7 @@ pub fn calendar_event_year_clamps_to_4_digit_range_test() -> Nil {
 
 pub fn ascii_renderer_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  ascii.to_string(qr)
+  qrkit.to_terminal(qr, style: qrkit.Blocks, margin: 4)
   |> string.is_empty
   |> should.be_false
 }
@@ -352,10 +335,7 @@ pub fn ascii_renderer_test() -> Nil {
 // quiet zone matches ISO/IEC 18004 and the existing to_string output.
 pub fn ascii_with_margin_zero_strips_quiet_zone_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let tight =
-    ascii.default_options()
-    |> ascii.with_margin(0)
-    |> ascii.to_string_with(qr, _)
+  let tight = qrkit.to_terminal(qr, style: qrkit.Blocks, margin: 0)
   // With no quiet zone every line starts with a dark cell (the
   // finder pattern's top-left corner) — the default output has a
   // 4-module margin of light cells in front.
@@ -365,11 +345,8 @@ pub fn ascii_with_margin_zero_strips_quiet_zone_test() -> Nil {
 
 pub fn ascii_with_margin_matches_default_at_4_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let default = ascii.to_string(qr)
-  let rebuilt =
-    ascii.default_options()
-    |> ascii.with_margin(4)
-    |> ascii.to_string_with(qr, _)
+  let default = qrkit.to_terminal(qr, style: qrkit.Blocks, margin: 4)
+  let rebuilt = qrkit.to_terminal(qr, style: qrkit.Blocks, margin: 4)
   default
   |> should.equal(rebuilt)
 }
@@ -377,30 +354,22 @@ pub fn ascii_with_margin_matches_default_at_4_test() -> Nil {
 pub fn ascii_with_inverse_option_flips_glyphs_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
   let inverted_via_options =
-    ascii.default_options()
-    |> ascii.with_inverse_option(True)
-    |> ascii.to_string_with(qr, _)
+    qrkit.to_terminal(qr, style: qrkit.InvertedBlocks, margin: 4)
   inverted_via_options
-  |> should.equal(ascii.with_inverse(qr))
+  |> should.equal(qrkit.to_terminal(qr, style: qrkit.InvertedBlocks, margin: 4))
 }
 
 pub fn ascii_with_margin_negative_clamps_to_zero_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let zeroed =
-    ascii.default_options()
-    |> ascii.with_margin(0)
-    |> ascii.to_string_with(qr, _)
-  let negative =
-    ascii.default_options()
-    |> ascii.with_margin(-1)
-    |> ascii.to_string_with(qr, _)
+  let zeroed = qrkit.to_terminal(qr, style: qrkit.Blocks, margin: 0)
+  let negative = qrkit.to_terminal(qr, style: qrkit.Blocks, margin: -1)
   zeroed
   |> should.equal(negative)
 }
 
 pub fn svg_renderer_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let xml = svg.to_string(qr)
+  let xml = qrkit.to_svg(qr, qrkit.default_image_options())
   string.starts_with(xml, "<svg")
   |> should.equal(True)
 
@@ -410,7 +379,7 @@ pub fn svg_renderer_test() -> Nil {
 
 pub fn hello_world_has_finder_patterns_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  should.equal(qrkit.version(qr), 1)
+  should.equal(qr.version, 1)
   should.equal(must_module_at(qr, 0, 0), True)
   should.equal(must_module_at(qr, 6, 0), True)
   should.equal(must_module_at(qr, 0, 6), True)
@@ -420,8 +389,7 @@ pub fn hello_world_has_finder_patterns_test() -> Nil {
 
 pub fn hello_world_matches_reference_matrix_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  qr
-  |> qrkit.rows
+  qr.rows
   |> rows_to_strings
   |> should.equal([
     "111111100010101111111",
@@ -450,12 +418,15 @@ pub fn hello_world_matches_reference_matrix_test() -> Nil {
 
 pub fn numeric_reference_matrix_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("01234567")
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "01234567",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Medium,
+      ),
+    )
 
-  qr
-  |> qrkit.rows
+  qr.rows
   |> rows_to_strings
   |> should.equal([
     "111111100011101111111",
@@ -484,8 +455,7 @@ pub fn numeric_reference_matrix_test() -> Nil {
 
 pub fn mask_selection_reference_matrix_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("A")
-  qr
-  |> qrkit.rows
+  qr.rows
   |> rows_to_strings
   |> should.equal([
     "111111101101001111111",
@@ -518,17 +488,20 @@ pub fn v2_alignment_matches_reference_test() -> Nil {
   // qrkit drew spurious alignment patterns over the top-right and bottom-left
   // finder patterns.
   let assert Ok(qr) =
-    qrkit.new("HELLO WORLD")
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.with_exact_version(2)
-    |> qrkit.build
+    qrkit.encode_with(
+      "HELLO WORLD",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Medium,
+        version: Some(2),
+      ),
+    )
 
-  qrkit.version(qr)
+  qr.version
   |> should.equal(2)
-  qrkit.width(qr)
+  qr.width
   |> should.equal(25)
-  qr
-  |> qrkit.rows
+  qr.rows
   |> rows_to_strings
   |> should.equal([
     "1111111000101010001111111",
@@ -565,13 +538,14 @@ pub fn v7_decodes_to_input_text_test() -> Nil {
   // version 7+ symbol had the wrong number of alignment patterns and was
   // unreadable. This test pins the v7 module count.
   let assert Ok(qr) =
-    qrkit.new("HELLO")
-    |> qrkit.with_exact_version(7)
-    |> qrkit.build
+    qrkit.encode_with(
+      "HELLO",
+      qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(7)),
+    )
 
-  qrkit.version(qr)
+  qr.version
   |> should.equal(7)
-  qrkit.width(qr)
+  qr.width
   |> should.equal(45)
 
   // Centre alignment (22, 22) must be dark.
@@ -588,30 +562,38 @@ pub fn v7_decodes_to_input_text_test() -> Nil {
 
 pub fn micro_qr_m2_produces_13x13_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("01234567")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "01234567",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        error_correction: qrkit.Medium,
+      ),
+    )
 
-  qrkit.width(qr)
+  qr.width
   |> should.equal(13)
-  qrkit.height(qr)
+  qr.height
   |> should.equal(13)
-  qrkit.symbol(qr)
-  |> should.equal(types.Micro)
+  qr.symbol
+  |> should.equal(qrkit.Micro)
 }
 
 pub fn micro_qr_m1_half_codeword_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("01234")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_exact_version(1)
-    |> qrkit.with_ecc(types.Low)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "01234",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        version: Some(1),
+        error_correction: qrkit.Low,
+      ),
+    )
 
-  qrkit.width(qr)
+  qr.width
   |> should.equal(11)
-  qrkit.height(qr)
+  qr.height
   |> should.equal(11)
   must_module_at(qr, 0, 0)
   |> should.equal(True)
@@ -619,13 +601,16 @@ pub fn micro_qr_m1_half_codeword_test() -> Nil {
 
 pub fn micro_qr_m2_low_matches_iso_annex_i_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("01234567")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_ecc(types.Low)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "01234567",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        error_correction: qrkit.Low,
+      ),
+    )
 
-  qr
-  |> qrkit.rows
+  qr.rows
   |> rows_to_strings
   |> should.equal([
     "1111111010101",
@@ -645,7 +630,8 @@ pub fn micro_qr_m2_low_matches_iso_annex_i_test() -> Nil {
 }
 
 pub fn structured_append_short_input_test() -> Nil {
-  let assert Ok(shards) = qrkit.encode_split("HI", 40)
+  let assert Ok(shards) =
+    qrkit.encode_split("HI", max_version: 40, error_correction: qrkit.Medium)
 
   shards
   |> list.length
@@ -653,7 +639,12 @@ pub fn structured_append_short_input_test() -> Nil {
 }
 
 pub fn structured_append_long_input_splits_test() -> Nil {
-  let assert Ok(shards) = qrkit.encode_split(string.repeat("0123456789", 8), 2)
+  let assert Ok(shards) =
+    qrkit.encode_split(
+      string.repeat("0123456789", 8),
+      max_version: 2,
+      error_correction: qrkit.Medium,
+    )
 
   { list.length(shards) >= 2 }
   |> should.be_true
@@ -661,26 +652,35 @@ pub fn structured_append_long_input_splits_test() -> Nil {
 
 pub fn structured_append_with_level_test() -> Nil {
   let assert Ok(shards) =
-    qrkit.encode_split_with(string.repeat("0123456789", 8), 2, types.High)
+    qrkit.encode_split(
+      string.repeat("0123456789", 8),
+      max_version: 2,
+      error_correction: qrkit.High,
+    )
 
   { list.length(shards) >= 2 }
   |> should.be_true
   list.map(shards, fn(shard) {
-    decode.from_rows(qrkit.rows(shard)) |> result.map(decode.error_correction)
+    qrkit.decode(shard.rows)
+    |> result.map(fn(decoded) { decoded.error_correction })
   })
-  |> list.all(fn(level) { level == Ok(types.High) })
+  |> list.all(fn(level) { level == Ok(qrkit.High) })
   |> should.be_true
 }
 
 pub fn structured_append_max_version_too_small_test() -> Nil {
-  qrkit.encode_split(string.repeat("0123456789", 60), 1)
+  qrkit.encode_split(
+    string.repeat("0123456789", 60),
+    max_version: 1,
+    error_correction: qrkit.Medium,
+  )
   |> result_is_data_too_long
   |> should.be_true
 }
 
-fn result_is_data_too_long(result: Result(a, error.EncodeError)) -> Bool {
+fn result_is_data_too_long(result: Result(a, qrkit.EncodeError)) -> Bool {
   case result {
-    Error(error.DataExceedsCapacity(_, _)) -> True
+    Error(qrkit.DataExceedsCapacity(_, _)) -> True
     _ -> False
   }
 }
@@ -689,27 +689,35 @@ pub fn rmqr_default_picks_the_smallest_area_test() -> Nil {
   // "01234567" fits R7x43 (301 modules) and R11x27 (297 modules); the
   // default picks the smaller area.
   let assert Ok(qr) =
-    qrkit.new("01234567")
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build()
+    qrkit.encode_with(
+      "01234567",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        error_correction: qrkit.Medium,
+      ),
+    )
 
-  #(qrkit.width(qr), qrkit.height(qr))
+  #(qr.width, qr.height)
   |> should.equal(#(27, 11))
-  qrkit.symbol(qr)
-  |> should.equal(types.Rectangular)
+  qr.symbol
+  |> should.equal(qrkit.Rectangular)
   must_module_at(qr, 0, 0)
   |> should.equal(True)
 }
 
 pub fn rmqr_shortest_height_priority_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("01234567")
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.with_rectangular_priority(types.ShortestHeight)
-    |> qrkit.build()
-  #(qrkit.width(qr), qrkit.height(qr)) |> should.equal(#(43, 7))
+    qrkit.encode_with(
+      "01234567",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        error_correction: qrkit.Medium,
+        rectangular_priority: qrkit.ShortestHeight,
+      ),
+    )
+  #(qr.width, qr.height) |> should.equal(#(43, 7))
 }
 
 pub fn rmqr_priorities_pick_different_shapes_test() -> Nil {
@@ -719,73 +727,89 @@ pub fn rmqr_priorities_pick_different_shapes_test() -> Nil {
   let payload = string.repeat("0123456789", 10)
   let build = fn(priority) {
     let assert Ok(qr) =
-      qrkit.new(payload)
-      |> qrkit.with_symbol(types.Rectangular)
-      |> qrkit.with_rectangular_priority(priority)
-      |> qrkit.build()
-    #(qrkit.width(qr), qrkit.height(qr))
+      qrkit.encode_with(
+        payload,
+        qrkit.EncodeOptions(
+          ..qrkit.default_encode_options(),
+          symbol: qrkit.Rectangular,
+          rectangular_priority: priority,
+        ),
+      )
+    #(qr.width, qr.height)
   }
-  build(types.SmallestArea) |> should.equal(#(77, 11))
-  build(types.ShortestHeight) |> should.equal(#(139, 7))
-  build(types.NarrowestWidth) |> should.equal(#(59, 15))
+  build(qrkit.SmallestArea) |> should.equal(#(77, 11))
+  build(qrkit.ShortestHeight) |> should.equal(#(139, 7))
+  build(qrkit.NarrowestWidth) |> should.equal(#(59, 15))
 }
 
-pub fn rectangular_priority_rejects_other_symbols_test() -> Nil {
-  qrkit.new("HELLO")
-  |> qrkit.with_rectangular_priority(types.ShortestHeight)
-  |> qrkit.build()
-  |> should.equal(
-    Error(error.IncompatibleOptions(
-      "rectangular priority is only supported for rMQR",
-    )),
+pub fn rectangular_priority_is_ignored_for_other_symbols_test() -> Nil {
+  qrkit.encode_with(
+    "HELLO",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      rectangular_priority: qrkit.ShortestHeight,
+    ),
   )
+  |> should.equal(qrkit.encode("HELLO"))
 }
 
 pub fn rmqr_rejects_low_ecc_test() -> Nil {
-  qrkit.new("HELLO")
-  |> qrkit.with_symbol(types.Rectangular)
-  |> qrkit.with_ecc(types.Low)
-  |> qrkit.build()
-  |> result_is_incompatible
-  |> should.be_true
+  qrkit.encode_with(
+    "HELLO",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Rectangular,
+      error_correction: qrkit.Low,
+    ),
+  )
+  |> should.equal(
+    Error(qrkit.ErrorCorrectionNotSupported(qrkit.Rectangular, qrkit.Low)),
+  )
 }
 
 pub fn rmqr_rejects_quartile_ecc_test() -> Nil {
-  qrkit.new("HELLO")
-  |> qrkit.with_symbol(types.Rectangular)
-  |> qrkit.with_ecc(types.Quartile)
-  |> qrkit.build()
-  |> result_is_incompatible
-  |> should.be_true
+  qrkit.encode_with(
+    "HELLO",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Rectangular,
+      error_correction: qrkit.Quartile,
+    ),
+  )
+  |> should.equal(
+    Error(qrkit.ErrorCorrectionNotSupported(qrkit.Rectangular, qrkit.Quartile)),
+  )
 }
 
 pub fn rmqr_large_size_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new(string.repeat("0123456789", 6))
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build()
+    qrkit.encode_with(
+      string.repeat("0123456789", 6),
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        error_correction: qrkit.Medium,
+      ),
+    )
 
-  { qrkit.width(qr) > 27 }
+  { qr.width > 27 }
   |> should.be_true
-  { qrkit.height(qr) >= 7 && qrkit.height(qr) <= 17 }
+  { qr.height >= 7 && qr.height <= 17 }
   |> should.be_true
 }
 
 pub fn micro_qr_m1_rejects_high_ecc_test() -> Nil {
-  qrkit.new("12345")
-  |> qrkit.with_symbol(types.Micro)
-  |> qrkit.with_ecc(types.High)
-  |> qrkit.build()
-  |> result_is_incompatible
-  |> should.be_true
-}
-
-fn result_is_incompatible(result: Result(a, error.EncodeError)) -> Bool {
-  case result {
-    Error(error.IncompatibleOptions(_)) -> True
-    _ -> False
-  }
+  qrkit.encode_with(
+    "12345",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Micro,
+      error_correction: qrkit.High,
+    ),
+  )
+  |> should.equal(
+    Error(qrkit.ErrorCorrectionNotSupported(qrkit.Micro, qrkit.High)),
+  )
 }
 
 pub fn reed_solomon_v1_q_iso_vector_test() -> Nil {
@@ -857,14 +881,20 @@ pub fn byte_mode_cci_boundary_v9_v10_test() -> Nil {
   // mode character count uses 16 bits instead of 8, so the bit stream shifts
   // and the entire data layout changes.
   let assert Ok(at_v9) =
-    qrkit.new("Hello, world!") |> qrkit.with_exact_version(9) |> qrkit.build
+    qrkit.encode_with(
+      "Hello, world!",
+      qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(9)),
+    )
   let assert Ok(at_v10) =
-    qrkit.new("Hello, world!") |> qrkit.with_exact_version(10) |> qrkit.build
-  qrkit.version(at_v9)
+    qrkit.encode_with(
+      "Hello, world!",
+      qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(10)),
+    )
+  at_v9.version
   |> should.equal(9)
-  qrkit.version(at_v10)
+  at_v10.version
   |> should.equal(10)
-  { rows_to_strings(qrkit.rows(at_v9)) != rows_to_strings(qrkit.rows(at_v10)) }
+  { rows_to_strings(at_v9.rows) != rows_to_strings(at_v10.rows) }
   |> should.be_true
 }
 
@@ -872,14 +902,16 @@ pub fn byte_mode_v10_matches_reference_test() -> Nil {
   // Captured from the npm `qrcode` library for "Hello, world!" at v10-M.
   // Exercises the 16-bit Byte-mode CCI bracket.
   let assert Ok(qr) =
-    qrkit.new("Hello, world!") |> qrkit.with_exact_version(10) |> qrkit.build
-  qrkit.version(qr)
+    qrkit.encode_with(
+      "Hello, world!",
+      qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(10)),
+    )
+  qr.version
   |> should.equal(10)
-  qrkit.width(qr)
+  qr.width
   |> should.equal(57)
   let rendered =
-    qr
-    |> qrkit.rows
+    qr.rows
     |> rows_to_strings
   list.length(rendered)
   |> should.equal(57)
@@ -893,16 +925,19 @@ pub fn v5_multi_block_interleaving_test() -> Nil {
   // Captured from the npm `qrcode` library. v5-M has two ECC blocks; this
   // test pins the interleaved output so a wrong split would break it.
   let assert Ok(qr) =
-    qrkit.new("https://github.com/nao1215/qrkit")
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.with_exact_version(5)
-    |> qrkit.build
-  qrkit.version(qr)
+    qrkit.encode_with(
+      "https://github.com/nao1215/qrkit",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Medium,
+        version: Some(5),
+      ),
+    )
+  qr.version
   |> should.equal(5)
-  qrkit.width(qr)
+  qr.width
   |> should.equal(37)
-  qr
-  |> qrkit.rows
+  qr.rows
   |> rows_to_strings
   |> should.equal([
     "1111111010000110110111110101101111111",
@@ -955,11 +990,15 @@ pub fn reserved_areas_intact_at_v25_test() -> Nil {
   // payload data must not perturb any functional pattern. `module_at(qr, x, y)`
   // takes (column, row).
   let assert Ok(qr) =
-    qrkit.new(string.repeat("0123456789", 30))
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.with_exact_version(25)
-    |> qrkit.build
-  qrkit.version(qr)
+    qrkit.encode_with(
+      string.repeat("0123456789", 30),
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Medium,
+        version: Some(25),
+      ),
+    )
+  qr.version
   |> should.equal(25)
 
   // All three finder pattern corners are 7x7 squares with dark outer rings.
@@ -982,16 +1021,6 @@ pub fn reserved_areas_intact_at_v25_test() -> Nil {
   must_module_at(qr, 6, 9) |> should.be_false
 }
 
-pub fn module_at_out_of_bounds_errors_test() -> Nil {
-  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  qrkit.module_at(qr, -1, 0)
-  |> should.equal(Error(error.ModuleOutOfBounds(-1, 0, 21, 21)))
-  qrkit.module_at(qr, 21, 0)
-  |> should.equal(Error(error.ModuleOutOfBounds(21, 0, 21, 21)))
-  qrkit.module_at(qr, 0, 21)
-  |> should.equal(Error(error.ModuleOutOfBounds(0, 21, 21, 21)))
-}
-
 // ---------------------------------------------------------------------------
 // UTF-8 / NUL byte / control character handling
 // ---------------------------------------------------------------------------
@@ -1000,11 +1029,11 @@ pub fn utf8_round_trip_through_byte_mode_test() -> Nil {
   // Multi-byte UTF-8 strings flow through Byte mode without truncation.
   let payload = "日本語テスト 🇯🇵"
   let assert Ok(qr) = qrkit.encode(payload)
-  qrkit.symbol(qr)
-  |> should.equal(types.Standard)
+  qr.symbol
+  |> should.equal(qrkit.Standard)
   // The QR matrix is square.
-  qrkit.width(qr)
-  |> should.equal(qrkit.height(qr))
+  qr.width
+  |> should.equal(qr.height)
 }
 
 pub fn control_chars_and_nul_byte_test() -> Nil {
@@ -1012,14 +1041,14 @@ pub fn control_chars_and_nul_byte_test() -> Nil {
   // the encoder or be silently dropped.
   let payload = "line1\nline2\tcol\r\u{0}nul\u{0}\u{1f}"
   let assert Ok(qr) = qrkit.encode(payload)
-  { qrkit.width(qr) >= 21 }
+  { qr.width >= 21 }
   |> should.be_true
 }
 
 pub fn emoji_payload_test() -> Nil {
   // Emojis are valid UTF-8 and just become Byte-mode bytes.
   let assert Ok(qr) = qrkit.encode("Hello 👋🌏 World")
-  { qrkit.width(qr) > 0 }
+  { qr.width > 0 }
   |> should.be_true
 }
 
@@ -1028,17 +1057,19 @@ pub fn emoji_payload_test() -> Nil {
 // ---------------------------------------------------------------------------
 
 pub fn version_below_one_errors_test() -> Nil {
-  qrkit.new("HELLO")
-  |> qrkit.with_exact_version(0)
-  |> qrkit.build
-  |> should.equal(Error(error.InvalidVersion(0)))
+  qrkit.encode_with(
+    "HELLO",
+    qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(0)),
+  )
+  |> should.equal(Error(qrkit.InvalidVersion(0)))
 }
 
 pub fn version_above_forty_errors_test() -> Nil {
-  qrkit.new("HELLO")
-  |> qrkit.with_exact_version(41)
-  |> qrkit.build
-  |> should.equal(Error(error.InvalidVersion(41)))
+  qrkit.encode_with(
+    "HELLO",
+    qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(41)),
+  )
+  |> should.equal(Error(qrkit.InvalidVersion(41)))
 }
 
 pub fn payload_exceeds_v40_capacity_errors_test() -> Nil {
@@ -1046,39 +1077,47 @@ pub fn payload_exceeds_v40_capacity_errors_test() -> Nil {
   // version's capacity at every ECC level.
   let huge = string.repeat("X", 5000)
   let result =
-    qrkit.new(huge)
-    |> qrkit.with_ecc(types.High)
-    |> qrkit.build
+    qrkit.encode_with(
+      huge,
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.High,
+      ),
+    )
   case result {
-    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    Error(qrkit.DataExceedsCapacity(_, _)) -> Nil
     _ -> should.fail()
   }
 }
 
 pub fn negative_eci_designator_errors_test() -> Nil {
-  qrkit.new("HELLO")
-  |> qrkit.with_eci(-1)
-  |> qrkit.build()
-  |> should.equal(Error(error.InvalidEciDesignator(-1)))
+  qrkit.encode_with(
+    "HELLO",
+    qrkit.EncodeOptions(..qrkit.default_encode_options(), eci: Some(-1)),
+  )
+  |> should.equal(Error(qrkit.InvalidEciDesignator(-1)))
 }
 
 pub fn oversized_eci_designator_errors_test() -> Nil {
-  qrkit.new("HELLO")
-  |> qrkit.with_eci(1_000_000)
-  |> qrkit.build()
-  |> should.equal(Error(error.InvalidEciDesignator(1_000_000)))
+  qrkit.encode_with(
+    "HELLO",
+    qrkit.EncodeOptions(..qrkit.default_encode_options(), eci: Some(1_000_000)),
+  )
+  |> should.equal(Error(qrkit.InvalidEciDesignator(1_000_000)))
 }
 
 pub fn eci_is_rejected_for_micro_qr_test() -> Nil {
   let result =
-    qrkit.new("12345")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_eci(26)
-    |> qrkit.build()
-  case result {
-    Error(error.IncompatibleOptions(_)) -> Nil
-    _ -> should.fail()
-  }
+    qrkit.encode_with(
+      "12345",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        eci: Some(26),
+      ),
+    )
+  result
+  |> should.equal(Error(qrkit.EciNotSupported(qrkit.Micro)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1092,10 +1131,11 @@ pub fn eci_is_rejected_for_micro_qr_test() -> Nil {
 
 pub fn exact_version_pins_exact_version_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("HI")
-    |> qrkit.with_exact_version(5)
-    |> qrkit.build
-  qrkit.version(qr)
+    qrkit.encode_with(
+      "HI",
+      qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(5)),
+    )
+  qr.version
   |> should.equal(5)
 }
 
@@ -1104,43 +1144,47 @@ pub fn strict_standard_overflow_at_exact_version_errors_test() -> Nil {
   // so a strict v1 must return DataExceedsCapacity rather than promoting.
   let payload = string.repeat("A", 100)
   let result =
-    qrkit.new(payload)
-    |> qrkit.with_exact_version(1)
-    |> qrkit.build
+    qrkit.encode_with(
+      payload,
+      qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(1)),
+    )
   case result {
-    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    Error(qrkit.DataExceedsCapacity(_, _)) -> Nil
     _ -> should.fail()
   }
 }
 
 pub fn strict_micro_m1_byte_mode_errors_test() -> Nil {
   // M1 only encodes Numeric mode per ISO/IEC 18004 Annex K.
-  // Byte input ("abc") at M1 must surface IncompatibleOptions, not promote.
-  let result =
-    qrkit.new("abc")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_exact_version(1)
-    |> qrkit.build
-  case result {
-    Error(error.IncompatibleOptions(_)) -> Nil
-    _ -> should.fail()
-  }
+  // Byte input ("abc") at M1 must name the first character M1 cannot
+  // encode, not promote.
+  qrkit.encode_with(
+    "abc",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Micro,
+      version: Some(1),
+    ),
+  )
+  |> should.equal(Error(qrkit.UnsupportedCharacter(0, "a")))
 }
 
 pub fn strict_micro_m1_medium_ecc_errors_test() -> Nil {
   // M1 supports error-detection only — no L/M/Q/H ECC levels.
-  // `Micro + exact version 1 + ecc=Medium` must surface IncompatibleOptions,
-  // not silently promote to M2 (which does support Medium).
-  let result =
-    qrkit.new("123")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_exact_version(1)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build
-  case result {
-    Error(error.IncompatibleOptions(_)) -> Nil
-    _ -> should.fail()
-  }
+  // `Micro + exact version 1 + ecc=Medium` must be rejected, not silently
+  // promote to M2 (which does support Medium).
+  qrkit.encode_with(
+    "123",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Micro,
+      version: Some(1),
+      error_correction: qrkit.Medium,
+    ),
+  )
+  |> should.equal(
+    Error(qrkit.ErrorCorrectionNotSupported(qrkit.Micro, qrkit.Medium)),
+  )
 }
 
 pub fn strict_micro_m1_overflow_errors_test() -> Nil {
@@ -1149,13 +1193,17 @@ pub fn strict_micro_m1_overflow_errors_test() -> Nil {
   // (default ECC = Medium would be caught earlier by the M1 ECC-incompatibility
   // path; see strict_micro_m1_medium_ecc_errors_test for that case.)
   let result =
-    qrkit.new("01234567")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_exact_version(1)
-    |> qrkit.with_ecc(types.Low)
-    |> qrkit.build
+    qrkit.encode_with(
+      "01234567",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        version: Some(1),
+        error_correction: qrkit.Low,
+      ),
+    )
   case result {
-    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    Error(qrkit.DataExceedsCapacity(_, _)) -> Nil
     _ -> should.fail()
   }
 }
@@ -1166,13 +1214,17 @@ pub fn strict_rmqr_overflow_errors_test() -> Nil {
   // promote to a wider rMQR variant.
   let huge = string.repeat("X", 500)
   let result =
-    qrkit.new(huge)
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_exact_version(1)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build
+    qrkit.encode_with(
+      huge,
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        version: Some(1),
+        error_correction: qrkit.Medium,
+      ),
+    )
   case result {
-    Error(error.DataExceedsCapacity(_, _)) -> Nil
+    Error(qrkit.DataExceedsCapacity(_, _)) -> Nil
     _ -> should.fail()
   }
 }
@@ -1181,8 +1233,8 @@ pub fn default_smallest_fit_unchanged_test() -> Nil {
   // When with_exact_version is not called, build still picks the smallest
   // fit — the strict behaviour only applies when the caller asks for a
   // specific floor.
-  let assert Ok(qr) = qrkit.new("HI") |> qrkit.build
-  qrkit.version(qr)
+  let assert Ok(qr) = qrkit.encode("HI")
+  qr.version
   |> should.equal(1)
 }
 
@@ -1194,10 +1246,12 @@ pub fn default_smallest_fit_unchanged_test() -> Nil {
 pub fn svg_dark_color_escaped_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HI")
   let injected =
-    svg.default_options()
-    |> svg.with_dark_color("\" onclick=\"alert(1)")
-    |> svg.with_light_color("</svg><script>evil()</script>")
-  let document = svg.to_string_with(qr, injected)
+    qrkit.ImageOptions(
+      ..qrkit.default_image_options(),
+      dark_color: "\" onclick=\"alert(1)",
+      light_color: Some("</svg><script>evil()</script>"),
+    )
+  let document = qrkit.to_svg(qr, injected)
 
   // Raw injected payload markers must not appear verbatim.
   string.contains(does: document, contain: "onclick=\"alert")
@@ -1215,10 +1269,12 @@ pub fn svg_dark_color_escaped_test() -> Nil {
 pub fn svg_dimension_options_normalize_invalid_values_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
   let options =
-    svg.default_options()
-    |> svg.with_module_size(0)
-    |> svg.with_margin(-3)
-  let document = svg.to_string_with(qr, options)
+    qrkit.ImageOptions(
+      ..qrkit.default_image_options(),
+      module_size: 0,
+      margin: -3,
+    )
+  let document = qrkit.to_svg(qr, options)
 
   string.contains(does: document, contain: "viewBox=\"0 0 21 21\"")
   |> should.be_true
@@ -1226,7 +1282,15 @@ pub fn svg_dimension_options_normalize_invalid_values_test() -> Nil {
 
 pub fn png_renderer_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let image = png.to_bit_array(qr, scale: 2, margin: 4)
+  let image =
+    qrkit.to_png(
+      qr,
+      qrkit.ImageOptions(
+        ..qrkit.default_image_options(),
+        module_size: 2,
+        margin: 4,
+      ),
+    )
 
   { bit_array.byte_size(image) > 0 }
   |> should.be_true
@@ -1242,7 +1306,15 @@ pub fn png_renderer_test() -> Nil {
 
 pub fn png_renderer_writes_every_module_and_valid_checksums_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let image = png.to_bit_array(qr, scale: 1, margin: 0)
+  let image =
+    qrkit.to_png(
+      qr,
+      qrkit.ImageOptions(
+        ..qrkit.default_image_options(),
+        module_size: 1,
+        margin: 0,
+      ),
+    )
 
   // The IEND chunk is always the same 12 bytes: an empty chunk followed by
   // the CRC-32 of its type, AE 42 60 82.
@@ -1256,9 +1328,9 @@ pub fn png_renderer_writes_every_module_and_valid_checksums_test() -> Nil {
   // header and the stored-block header (8 + 25 + 18 + 8 + 2 + 5 bytes).
   // Each scanline is a filter byte and one bit per module, palette index 0
   // being dark, padded to a whole byte.
-  let width = qrkit.width(qr)
+  let width = qr.width
   let row_bytes = 1 + { width + 7 } / 8
-  let rows = qrkit.rows(qr)
+  let rows = qr.rows
   rows
   |> list.index_map(fn(_, row) {
     let assert Ok(line) =
@@ -1284,8 +1356,24 @@ fn png_pixels(bits: BitArray, remaining: Int, acc: List(Bool)) -> List(Bool) {
 
 pub fn png_renderer_normalizes_invalid_scale_and_margin_test() -> Nil {
   let assert Ok(qr) = qrkit.encode("HELLO WORLD")
-  let normalized = png.to_bit_array(qr, scale: 1, margin: 0)
-  let coerced = png.to_bit_array(qr, scale: 0, margin: -4)
+  let normalized =
+    qrkit.to_png(
+      qr,
+      qrkit.ImageOptions(
+        ..qrkit.default_image_options(),
+        module_size: 1,
+        margin: 0,
+      ),
+    )
+  let coerced =
+    qrkit.to_png(
+      qr,
+      qrkit.ImageOptions(
+        ..qrkit.default_image_options(),
+        module_size: 0,
+        margin: -4,
+      ),
+    )
   coerced
   |> should.equal(normalized)
 }
@@ -1295,7 +1383,7 @@ pub fn mixed_payload_switches_to_numeric_for_a_digit_run_test() -> Nil {
   // at Medium, while Byte + Numeric for the digit run fits version 3.
   let assert Ok(qr) =
     qrkit.encode("https://example.com/item?id=12345678901234567890123456789")
-  qrkit.version(qr) |> should.equal(3)
+  qr.version |> should.equal(3)
 }
 
 pub fn payload_that_fits_version_10_or_later_is_not_rejected_test() -> Nil {
@@ -1304,44 +1392,64 @@ pub fn payload_that_fits_version_10_or_later_is_not_rejected_test() -> Nil {
   // where every segment header is wider, so payloads that fit were rejected
   // with DataExceedsCapacity.
   let assert Ok(qr) =
-    qrkit.new(string.repeat("abc123456", 30))
-    |> qrkit.with_ecc(types.Low)
-    |> qrkit.build
-  qrkit.version(qr) |> should.equal(10)
+    qrkit.encode_with(
+      string.repeat("abc123456", 30),
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Low,
+      ),
+    )
+  qr.version |> should.equal(10)
 
   let assert Ok(qr) =
-    qrkit.new(string.repeat("id=1234567;", 25))
-    |> qrkit.with_ecc(types.Low)
-    |> qrkit.build
-  qrkit.version(qr) |> should.equal(11)
+    qrkit.encode_with(
+      string.repeat("id=1234567;", 25),
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        error_correction: qrkit.Low,
+      ),
+    )
+  qr.version |> should.equal(11)
 }
 
 pub fn micro_qr_encodes_kana_in_kanji_mode_test() -> Nil {
   // Kanji mode costs 13 bits per character against 24 for UTF-8 Byte, so
   // four katakana fit M3 at Medium and M4 at Quartile.
   let assert Ok(medium) =
-    qrkit.new("カタカナ")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_ecc(types.Medium)
-    |> qrkit.build
-  qrkit.version(medium) |> should.equal(3)
+    qrkit.encode_with(
+      "カタカナ",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        error_correction: qrkit.Medium,
+      ),
+    )
+  medium.version |> should.equal(3)
 
   let assert Ok(quartile) =
-    qrkit.new("カタカナ")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.build
-  qrkit.version(quartile) |> should.equal(4)
+    qrkit.encode_with(
+      "カタカナ",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        error_correction: qrkit.Quartile,
+      ),
+    )
+  quartile.version |> should.equal(4)
 }
 
 pub fn rmqr_encodes_kana_in_kanji_mode_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("こんにちは")
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_rectangular_priority(types.ShortestHeight)
-    |> qrkit.build
+    qrkit.encode_with(
+      "こんにちは",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        rectangular_priority: qrkit.ShortestHeight,
+      ),
+    )
   // R7x59: five characters in Kanji mode need 3 + 3 + 65 = 71 bits.
-  #(qrkit.width(qr), qrkit.height(qr)) |> should.equal(#(59, 7))
+  #(qr.width, qr.height) |> should.equal(#(59, 7))
 }
 
 pub fn micro_qr_mixes_numeric_and_kanji_segments_test() -> Nil {
@@ -1349,27 +1457,39 @@ pub fn micro_qr_mixes_numeric_and_kanji_segments_test() -> Nil {
   // Quartile; one Byte segment for all five characters needs 96 bits and
   // does not fit M4 at Quartile (80 bits).
   let assert Ok(low) =
-    qrkit.new("59けあお")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_ecc(types.Low)
-    |> qrkit.build
-  qrkit.version(low) |> should.equal(3)
+    qrkit.encode_with(
+      "59けあお",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        error_correction: qrkit.Low,
+      ),
+    )
+  low.version |> should.equal(3)
 
   let assert Ok(quartile) =
-    qrkit.new("59けあお")
-    |> qrkit.with_symbol(types.Micro)
-    |> qrkit.with_ecc(types.Quartile)
-    |> qrkit.build
-  qrkit.version(quartile) |> should.equal(4)
+    qrkit.encode_with(
+      "59けあお",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Micro,
+        error_correction: qrkit.Quartile,
+      ),
+    )
+  quartile.version |> should.equal(4)
 }
 
 pub fn rmqr_mixes_kanji_and_alphanumeric_segments_test() -> Nil {
   let assert Ok(qr) =
-    qrkit.new("品番ABC-12345 数量10")
-    |> qrkit.with_symbol(types.Rectangular)
-    |> qrkit.with_rectangular_priority(types.ShortestHeight)
-    |> qrkit.build
-  #(qrkit.width(qr), qrkit.height(qr)) |> should.equal(#(77, 7))
+    qrkit.encode_with(
+      "品番ABC-12345 数量10",
+      qrkit.EncodeOptions(
+        ..qrkit.default_encode_options(),
+        symbol: qrkit.Rectangular,
+        rectangular_priority: qrkit.ShortestHeight,
+      ),
+    )
+  #(qr.width, qr.height) |> should.equal(#(77, 7))
 }
 
 fn rows_to_strings(rows: List(List(Bool))) -> List(String) {
@@ -1384,4 +1504,190 @@ fn rows_to_strings(rows: List(List(Bool))) -> List(String) {
     })
     |> string.join(with: "")
   })
+}
+
+// ---------------------------------------------------------------------------
+// Errors that used to be `IncompatibleOptions(String)`.
+// ---------------------------------------------------------------------------
+
+fn micro_at(text: String, version: Int, mode: qrkit.ModePreference) {
+  qrkit.encode_with(
+    text,
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Micro,
+      version: Some(version),
+      error_correction: qrkit.Low,
+      mode:,
+    ),
+  )
+}
+
+pub fn pinned_micro_version_names_first_unsupported_character_test() -> Nil {
+  // M1 is Numeric only.
+  micro_at("12AB", 1, qrkit.Auto)
+  |> should.equal(Error(qrkit.UnsupportedCharacter(2, "A")))
+  // M2 adds Alphanumeric, but not lower case.
+  micro_at("AB12a", 2, qrkit.Auto)
+  |> should.equal(Error(qrkit.UnsupportedCharacter(4, "a")))
+  // ForceByte needs Byte mode, which M1 and M2 lack.
+  micro_at("12", 2, qrkit.ForceByte)
+  |> should.equal(Error(qrkit.UnsupportedCharacter(0, "1")))
+}
+
+pub fn unsupported_character_index_counts_code_points_test() -> Nil {
+  // "👍🏽" is one grapheme but two code points; the index and the character
+  // are per code point.
+  micro_at("1é2", 1, qrkit.Auto)
+  |> should.equal(Error(qrkit.UnsupportedCharacter(1, "é")))
+  micro_at("👍🏽1A", 2, qrkit.Auto)
+  |> should.equal(Error(qrkit.UnsupportedCharacter(0, "👍")))
+  micro_at("1👍🏽A", 2, qrkit.Auto)
+  |> should.equal(Error(qrkit.UnsupportedCharacter(1, "👍")))
+}
+
+pub fn pinned_micro_version_still_accepts_its_modes_test() -> Nil {
+  let assert Ok(qr) = micro_at("12AB", 2, qrkit.Auto)
+  qr.version |> should.equal(2)
+  let assert Ok(qr) = micro_at("12ab", 3, qrkit.ForceByte)
+  qr.version |> should.equal(3)
+}
+
+pub fn micro_error_correction_per_version_test() -> Nil {
+  qrkit.encode_with(
+    "12",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Micro,
+      version: Some(2),
+      error_correction: qrkit.Quartile,
+    ),
+  )
+  |> should.equal(
+    Error(qrkit.ErrorCorrectionNotSupported(qrkit.Micro, qrkit.Quartile)),
+  )
+}
+
+pub fn eci_is_rejected_for_rmqr_test() -> Nil {
+  qrkit.encode_with(
+    "12345",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Rectangular,
+      eci: Some(26),
+    ),
+  )
+  |> should.equal(Error(qrkit.EciNotSupported(qrkit.Rectangular)))
+}
+
+pub fn invalid_eci_designator_wins_over_symbol_check_test() -> Nil {
+  qrkit.encode_with(
+    "12345",
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Micro,
+      eci: Some(-1),
+    ),
+  )
+  |> should.equal(Error(qrkit.InvalidEciDesignator(-1)))
+}
+
+// ---------------------------------------------------------------------------
+// Rendering reads the size from `rows`.
+// ---------------------------------------------------------------------------
+
+pub fn renderers_size_from_rows_not_record_fields_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let wrong = qrkit.QrCode(..qr, width: 3, height: 99)
+  let options = qrkit.default_image_options()
+  qrkit.to_svg(wrong, options) |> should.equal(qrkit.to_svg(qr, options))
+  qrkit.to_png(wrong, options) |> should.equal(qrkit.to_png(qr, options))
+  qrkit.to_terminal(wrong, style: qrkit.HalfBlocks, margin: 1)
+  |> should.equal(qrkit.to_terminal(qr, style: qrkit.HalfBlocks, margin: 1))
+}
+
+pub fn svg_default_dark_is_black_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  let document = qrkit.to_svg(qr, qrkit.default_image_options())
+  string.contains(document, "<path fill=\"#000000\"") |> should.be_true
+  string.contains(document, "<rect") |> should.be_true
+}
+
+pub fn svg_without_light_color_has_no_background_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  qrkit.to_svg(
+    qr,
+    qrkit.ImageOptions(..qrkit.default_image_options(), light_color: None),
+  )
+  |> string.contains("<rect")
+  |> should.be_false
+}
+
+pub fn terminal_negative_margin_is_zero_test() -> Nil {
+  let assert Ok(qr) = qrkit.encode("HELLO WORLD")
+  list.each([qrkit.Blocks, qrkit.InvertedBlocks, qrkit.HalfBlocks], fn(style) {
+    qrkit.to_terminal(qr, style:, margin: -3)
+    |> should.equal(qrkit.to_terminal(qr, style:, margin: 0))
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Payloads.
+// ---------------------------------------------------------------------------
+
+pub fn wifi_open_network_has_no_password_test() -> Nil {
+  qrkit.wifi(ssid: "Guest", security: qrkit.Open, hidden: False)
+  |> should.equal("WIFI:T:nopass;S:Guest;P:;;")
+}
+
+pub fn all_day_event_ends_the_day_after_last_test() -> Nil {
+  let event =
+    qrkit.calendar_event(
+      "Trip",
+      qrkit.AllDay(
+        first: calendar.Date(2026, calendar.December, 30),
+        last: calendar.Date(2027, calendar.January, 1),
+      ),
+    )
+    |> qrkit.calendar_event_to_string
+  string.contains(event, "DTSTART;VALUE=DATE:20261230\r\n") |> should.be_true
+  string.contains(event, "DTEND;VALUE=DATE:20270102\r\n") |> should.be_true
+  string.contains(event, "DTSTAMP:20261230T000000Z\r\n") |> should.be_true
+}
+
+pub fn all_day_event_crosses_leap_day_test() -> Nil {
+  qrkit.calendar_event(
+    "Leap",
+    qrkit.AllDay(
+      first: calendar.Date(2028, calendar.February, 28),
+      last: calendar.Date(2028, calendar.February, 29),
+    ),
+  )
+  |> qrkit.calendar_event_to_string
+  |> string.contains("DTEND;VALUE=DATE:20280301\r\n")
+  |> should.be_true
+}
+
+pub fn timed_event_ignores_sub_second_part_test() -> Nil {
+  let at = fn(seconds, nanoseconds) {
+    timestamp.from_unix_seconds_and_nanoseconds(seconds, nanoseconds)
+  }
+  qrkit.calendar_event("x", qrkit.Timed(at(10, 999_999_999), at(20, 1)))
+  |> qrkit.calendar_event_to_string
+  |> should.equal(
+    qrkit.calendar_event("x", qrkit.Timed(at(10, 0), at(20, 0)))
+    |> qrkit.calendar_event_to_string,
+  )
+}
+
+pub fn geo_writes_plain_decimals_test() -> Nil {
+  qrkit.geo(latitude: 0.0, longitude: 1.0e-7)
+  |> should.equal("geo:0.0,0.0000001")
+  qrkit.geo(latitude: -1.5e-8, longitude: 35.6895)
+  |> should.equal("geo:-0.000000015,35.6895")
+  qrkit.geo(latitude: 35.6812, longitude: -139.7671)
+  |> should.equal("geo:35.6812,-139.7671")
+  // JavaScript writes large values as `1e+21`.
+  qrkit.geo(latitude: 1.0e21, longitude: -2.5e22)
+  |> should.equal("geo:1000000000000000000000.0,-25000000000000000000000.0")
 }

@@ -1,10 +1,10 @@
-//// Pure Gleam PNG renderer for qrkit QR codes.
+//// Pure Gleam PNG renderer.
 
 import gleam/bit_array
 import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
-import qrkit
 import qrkit/internal/util
 
 const png_signature = <<137, 80, 78, 71, 13, 10, 26, 10>>
@@ -68,78 +68,20 @@ const crc32_table: BitArray = <<
 
 const adler32_modulus = 65_521
 
-/// Rendering options for [`to_bit_array_with`](#to_bit_array_with).
-///
-/// Mirrors the shape of `qrkit/render/svg`'s `SvgOptions`. The
-/// colour fields accept CSS-style hex strings (`#rgb`, `#rrggbb`, or
-/// `#rrggbbaa`); unparseable values fall back to the default colour
-/// rather than rejecting the call, so callers can keep the surface
-/// non-fallible.
-pub opaque type PngOptions {
-  PngOptions(
-    module_size: Int,
-    margin: Int,
-    dark_color: String,
-    light_color: String,
-    background: Bool,
-  )
-}
-
-/// Default PNG rendering options: 8×8 px modules, 4-module quiet
-/// zone, black on white, background on. Mirrors
-/// [`qrkit/render/svg`](./svg.html)'s defaults.
-pub fn default_options() -> PngOptions {
-  PngOptions(8, 4, "#000000", "#ffffff", True)
-}
-
-/// Set the PNG module size in pixels.
-///
-/// Values less than 1 are normalised to 1 to keep the rendered
-/// output usable.
-pub fn with_module_size(options: PngOptions, px: Int) -> PngOptions {
-  PngOptions(..options, module_size: int.max(px, 1))
-}
-
-/// Set the quiet-zone margin in modules.
-///
-/// Negative values are normalised to 0.
-pub fn with_margin(options: PngOptions, modules: Int) -> PngOptions {
-  PngOptions(..options, margin: int.max(modules, 0))
-}
-
-/// Set the dark module colour. Accepts `#rgb`, `#rrggbb`, or
-/// `#rrggbbaa` — same syntax as the SVG renderer. Unparseable
-/// strings keep the previous value rather than failing the call.
-pub fn with_dark_color(options: PngOptions, css_color: String) -> PngOptions {
-  PngOptions(..options, dark_color: css_color)
-}
-
-/// Set the light / background colour. Accepts the same hex syntax as
-/// [`with_dark_color`](#with_dark_color).
-pub fn with_light_color(options: PngOptions, css_color: String) -> PngOptions {
-  PngOptions(..options, light_color: css_color)
-}
-
-/// Toggle whether the light/background pixels are drawn opaquely.
-///
-/// When `False`, the light palette entry is marked transparent via a
-/// `tRNS` chunk so the QR code can be composited over an existing
-/// background.
-pub fn with_background(options: PngOptions, draw: Bool) -> PngOptions {
-  PngOptions(..options, background: draw)
-}
-
-/// Render a QR code as PNG bytes using the options builder.
-///
-/// Equivalent to [`to_bit_array`](#to_bit_array) when called with
-/// [`default_options`](#default_options) overridden only by
-/// [`with_module_size`](#with_module_size) and
-/// [`with_margin`](#with_margin); the colour and background options
-/// are only available here.
-pub fn to_bit_array_with(qr: qrkit.QrCode, options: PngOptions) -> BitArray {
-  let PngOptions(module_size, margin, dark_color, light_color, background) =
-    options
-  let rows = util.pad_rows(qrkit.rows(qr), margin)
+/// Render `rows` as a 1-bit palette PNG: `module_size` px per module, a
+/// quiet zone of `margin` modules, and the dark and light palette entries
+/// from `dark_color` and `light_color`. A `None` light colour keeps the
+/// light entry white and marks it transparent with a `tRNS` chunk. Colours
+/// are `#rgb`, `#rrggbb` or `#rrggbbaa` (alpha ignored); anything else
+/// falls back to black for dark and white for light.
+pub fn render(
+  rows: List(List(Bool)),
+  module_size module_size: Int,
+  margin margin: Int,
+  dark_color dark_color: String,
+  light_color light_color: Option(String),
+) -> BitArray {
+  let rows = util.pad_rows(rows, margin)
   let width = case rows {
     [first, ..] -> list.length(first) * module_size
     [] -> 0
@@ -153,12 +95,17 @@ pub fn to_bit_array_with(qr: qrkit.QrCode, options: PngOptions) -> BitArray {
     |> bit_array.concat
   let ihdr = <<width:32, height:32, 1, 3, 0, 0, 0>>
   let #(dr, dg, db) = parse_css_rgb(dark_color, default: #(0, 0, 0))
-  let #(lr, lg, lb) = parse_css_rgb(light_color, default: #(255, 255, 255))
+  let #(lr, lg, lb) =
+    parse_css_rgb(option.unwrap(light_color, "#ffffff"), default: #(
+      255,
+      255,
+      255,
+    ))
   // tRNS chunk: palette alpha. Index 0 (dark) stays opaque at 255;
-  // index 1 (light) is made transparent when background == False.
-  let trns_chunk = case background {
-    True -> <<>>
-    False -> chunk(<<"tRNS">>, <<255, 0>>)
+  // index 1 (light) is made transparent when there is no light colour.
+  let trns_chunk = case light_color {
+    Some(_) -> <<>>
+    None -> chunk(<<"tRNS">>, <<255, 0>>)
   }
   bit_array.concat([
     png_signature,
@@ -168,25 +115,6 @@ pub fn to_bit_array_with(qr: qrkit.QrCode, options: PngOptions) -> BitArray {
     chunk(<<"IDAT">>, zlib_store(image_data)),
     chunk(<<"IEND">>, <<>>),
   ])
-}
-
-/// Render a QR code as PNG bytes.
-///
-/// `scale` values less than 1 are normalised to 1, and negative `margin`
-/// values are normalised to 0. Thin wrapper around
-/// [`to_bit_array_with`](#to_bit_array_with) using the default
-/// black-on-white palette.
-pub fn to_bit_array(
-  qr: qrkit.QrCode,
-  scale scale: Int,
-  margin margin: Int,
-) -> BitArray {
-  to_bit_array_with(
-    qr,
-    default_options()
-      |> with_module_size(scale)
-      |> with_margin(margin),
-  )
 }
 
 fn parse_css_rgb(

@@ -18,11 +18,9 @@ import metamon/generator/range
 import metamon/relation
 import metamon/transform
 import qrkit
-import qrkit/decode
-import qrkit/types
 
 type Request =
-  #(String, types.Symbol, types.ErrorCorrection)
+  #(String, qrkit.Symbol, qrkit.ErrorCorrection)
 
 fn request() -> generator.Generator(Request) {
   generator.tuple3(generators.text(), generators.symbol(), generators.ecc())
@@ -30,17 +28,21 @@ fn request() -> generator.Generator(Request) {
 
 fn build(input: Request) -> Result(qrkit.QrCode, qrkit.EncodeError) {
   let #(text, symbol, ecc) = input
-  qrkit.new(text)
-  |> qrkit.with_symbol(symbol)
-  |> qrkit.with_ecc(ecc)
-  |> qrkit.build
+  qrkit.encode_with(
+    text,
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: symbol,
+      error_correction: ecc,
+    ),
+  )
 }
 
 /// The number of modules of the chosen symbol, or `Error` when the request
 /// does not fit any size. An error ranks above every size.
 fn modules(input: Request) -> Result(Int, Nil) {
   build(input)
-  |> result.map(fn(qr) { qrkit.width(qr) * qrkit.height(qr) })
+  |> result.map(fn(qr) { qr.width * qr.height })
   |> result.replace_error(Nil)
 }
 
@@ -81,14 +83,14 @@ pub fn longer_payload_never_gets_a_smaller_symbol_test() -> Nil {
 fn stronger(input: Request) -> Request {
   let #(text, symbol, ecc) = input
   let next = case symbol, ecc {
-    types.Rectangular, types.Medium -> types.High
-    types.Rectangular, other -> other
-    types.Micro, types.Low -> types.Medium
-    types.Micro, types.Medium -> types.Quartile
-    types.Micro, other -> other
-    types.Standard, types.Low -> types.Medium
-    types.Standard, types.Medium -> types.Quartile
-    types.Standard, _ -> types.High
+    qrkit.Rectangular, qrkit.Medium -> qrkit.High
+    qrkit.Rectangular, other -> other
+    qrkit.Micro, qrkit.Low -> qrkit.Medium
+    qrkit.Micro, qrkit.Medium -> qrkit.Quartile
+    qrkit.Micro, other -> other
+    qrkit.Standard, qrkit.Low -> qrkit.Medium
+    qrkit.Standard, qrkit.Medium -> qrkit.Quartile
+    qrkit.Standard, _ -> qrkit.High
   }
   #(text, symbol, next)
 }
@@ -104,7 +106,7 @@ fn long_request() -> generator.Generator(Request) {
     ])
   generator.tuple3(
     generator.string(char, range.constant(150, 500)),
-    generator.return(types.Standard),
+    generator.return(qrkit.Standard),
     generators.ecc(),
   )
 }
@@ -146,7 +148,7 @@ fn rows_of(
   g
   |> generator.map(fn(input) {
     build(input)
-    |> result.map(qrkit.rows)
+    |> result.map(fn(qr) { qr.rows })
     |> result.unwrap([])
   })
 }
@@ -176,8 +178,8 @@ fn pad(rows: List(List(Bool)), by: Int) -> List(List(Bool)) {
 }
 
 fn read(rows: List(List(Bool))) -> Result(String, Nil) {
-  decode.from_rows(rows)
-  |> result.map(decode.text)
+  qrkit.decode(rows)
+  |> result.map(fn(decoded) { decoded.text })
   |> result.replace_error(Nil)
 }
 
@@ -238,13 +240,13 @@ pub fn padding_keeps_what_the_decoder_reports_test() -> Nil {
       case build(req) {
         Error(_) -> True
         Ok(qr) ->
-          case decode.from_rows(pad(qrkit.rows(qr), by)) {
+          case qrkit.decode(pad(qr.rows, by)) {
             Ok(decoded) ->
-              decode.version(decoded) == qrkit.version(qr)
-              && decode.symbol(decoded) == qrkit.symbol(qr)
-              && decode.error_correction(decoded) == qrkit.error_correction(qr)
-              && decode.mask(decoded) == qrkit.mask(qr)
-              && decode.errors_corrected(decoded) == 0
+              decoded.version == qr.version
+              && decoded.symbol == qr.symbol
+              && decoded.error_correction == qr.error_correction
+              && decoded.mask == qr.mask
+              && decoded.errors_corrected == 0
             Error(_) -> False
           }
       }

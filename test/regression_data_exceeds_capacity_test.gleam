@@ -7,18 +7,18 @@
 //// The Standard-QR path already populated both fields; this file pins that
 //// behaviour too so the Standard regression cannot silently break.
 
+import gleam/option.{Some}
+
 import gleam/string
 import gleeunit/should
 import qrkit
-import qrkit/error
-import qrkit/types
 
 /// Assert the error is `DataExceedsCapacity` and both fields are strictly
 /// positive — the whole point of #22 is that callers can render "your payload
 /// is X bits over the ceiling," which is impossible if either field is zero.
-fn expect_capacity_error(result: Result(a, error.EncodeError)) -> Nil {
+fn expect_capacity_error(result: Result(a, qrkit.EncodeError)) -> Nil {
   case result {
-    Error(error.DataExceedsCapacity(bits_needed, bits_available)) -> {
+    Error(qrkit.DataExceedsCapacity(bits_needed, bits_available)) -> {
       should.be_true(bits_needed > 0)
       should.be_true(bits_available > 0)
       should.be_true(bits_needed > bits_available)
@@ -33,10 +33,14 @@ pub fn micro_qr_overflow_carries_informative_fields_test() -> Nil {
   // the encoded-bit count vs the M4 capacity so the caller can render a
   // useful overflow message.
   let payload = string.repeat("X", 190)
-  qrkit.new(payload)
-  |> qrkit.with_symbol(types.Micro)
-  |> qrkit.with_ecc(types.Low)
-  |> qrkit.build
+  qrkit.encode_with(
+    payload,
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Micro,
+      error_correction: qrkit.Low,
+    ),
+  )
   |> expect_capacity_error
 }
 
@@ -48,10 +52,14 @@ pub fn rmqr_overflow_carries_informative_fields_test() -> Nil {
   // `DataExceedsCapacity(0, 0)`.
   let payload = string.repeat("a", 200)
   // Force the encoder to pick rMQR and walk all 32 versions.
-  qrkit.new(payload)
-  |> qrkit.with_symbol(types.Rectangular)
-  |> qrkit.with_ecc(types.Medium)
-  |> qrkit.build
+  qrkit.encode_with(
+    payload,
+    qrkit.EncodeOptions(
+      ..qrkit.default_encode_options(),
+      symbol: qrkit.Rectangular,
+      error_correction: qrkit.Medium,
+    ),
+  )
   |> expect_capacity_error
 }
 
@@ -61,7 +69,7 @@ pub fn encode_split_overflow_carries_informative_fields_test() -> Nil {
   // far past 16 shards × v1 capacity, forcing the bailout in `find_split`.
   // Before #22 this returned `DataExceedsCapacity(0, 0)`.
   let payload = string.repeat("Hello, world! ", 200)
-  qrkit.encode_split(payload, 1)
+  qrkit.encode_split(payload, max_version: 1, error_correction: qrkit.Medium)
   |> expect_capacity_error
 }
 
@@ -69,8 +77,9 @@ pub fn standard_overflow_carries_informative_fields_regression_test() -> Nil {
   // The Standard-QR `internal/standard.gleam:115` path already populates both
   // fields. Pin it so a refactor cannot silently regress to `(0, 0)`.
   let payload = string.repeat("A", 1000)
-  qrkit.new(payload)
-  |> qrkit.with_exact_version(1)
-  |> qrkit.build
+  qrkit.encode_with(
+    payload,
+    qrkit.EncodeOptions(..qrkit.default_encode_options(), version: Some(1)),
+  )
   |> expect_capacity_error
 }

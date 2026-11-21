@@ -9,22 +9,23 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
-import qrkit/error.{
-  type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
-}
 import qrkit/internal/bitstream
+import qrkit/internal/error.{
+  type EncodeError, DataExceedsCapacity, ErrorCorrectionNotSupported,
+  InvalidVersion,
+}
 import qrkit/internal/format_info
 import qrkit/internal/mask
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
 import qrkit/internal/segment
-import qrkit/internal/util
-import qrkit/types.{
+import qrkit/internal/types.{
   type ErrorCorrection, type Mode, type ModePreference, type RectangularPriority,
   Alphanumeric, Byte, High, Kanji, Low, Medium, NarrowestWidth, Numeric,
-  Quartile, ShortestHeight, SmallestArea,
+  Quartile, Rectangular, ShortestHeight, SmallestArea,
 }
+import qrkit/internal/util
 
 const total_versions: Int = 32
 
@@ -117,7 +118,7 @@ const alignment_columns: List(Int) = [
 /// Encode `text` into an rMQR symbol.
 ///
 /// `exact_version` is `Some(N)` (1-based, 1 = R7×43, 32 = R17×139) when the
-/// caller pinned the version with `qrkit.with_exact_version(N)`: the symbol
+/// caller pinned the version with `EncodeOptions(version: Some(N))`: the symbol
 /// is version N, and a payload that does not fit returns an `Error`. When it
 /// is `None`, the encoder picks the first version in the priority order that
 /// fits.
@@ -211,10 +212,7 @@ fn segments_bits(segments: List(segment.Segment), index: Int) -> Int {
 fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   case ecc {
     Medium | High -> Ok(Nil)
-    Low | Quartile ->
-      Error(IncompatibleOptions(
-        "rMQR only supports M or H error correction levels",
-      ))
+    Low | Quartile -> Error(ErrorCorrectionNotSupported(Rectangular, ecc))
   }
 }
 
@@ -321,11 +319,11 @@ fn create_codewords(
 ) -> Result(List(Int), EncodeError) {
   let capacity = data_capacity_bits(index, ecc)
   use stream <- result.try(
-    segment.append_segments(bitstream.new(), segments, fn(segment_mode) {
+    segment.append_segments(bitstream.new(), segments, fn(seg) {
       Ok(segment.Header(
-        mode_indicator(segment_mode),
+        mode_indicator(seg.mode),
         3,
-        lookup_cci(segment_mode, index),
+        lookup_cci(seg.mode, index),
       ))
     }),
   )

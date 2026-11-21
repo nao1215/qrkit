@@ -3,14 +3,14 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import qrkit/error.{type EncodeError, InvalidEciDesignator}
 import qrkit/internal/bitstream
+import qrkit/internal/error.{type EncodeError, InvalidEciDesignator}
 import qrkit/internal/mode
-import qrkit/internal/util
-import qrkit/types.{
+import qrkit/internal/types.{
   type Mode, type ModePreference, Alphanumeric, Auto, Byte, ForceByte, Kanji,
   Numeric,
 }
+import qrkit/internal/util
 
 /// A run of the payload in one mode: its characters, character count,
 /// data length in bits and the index of its first character in the whole
@@ -113,11 +113,11 @@ pub fn append_to_stream(
       Ok(append_eci(stream, value))
     Some(value) -> Error(InvalidEciDesignator(value))
   })
-  append_segments(with_eci, segments, fn(segment_mode) {
+  append_segments(with_eci, segments, fn(segment) {
     Ok(Header(
-      mode.mode_bits(segment_mode),
+      mode.mode_bits(segment.mode),
       4,
-      mode.char_count_bits(segment_mode, version),
+      mode.char_count_bits(segment.mode, version),
     ))
   })
 }
@@ -127,11 +127,11 @@ pub fn append_to_stream(
 pub fn append_segments(
   stream: bitstream.BitStream,
   segments: List(Segment),
-  header: fn(Mode) -> Result(Header, EncodeError),
+  header: fn(Segment) -> Result(Header, EncodeError),
 ) -> Result(bitstream.BitStream, EncodeError) {
   list.try_fold(segments, stream, fn(stream, segment) {
     use Header(indicator, indicator_bits, count_bits) <- result.try(header(
-      segment.mode,
+      segment,
     ))
     use payload <- result.try(mode.encode(
       segment.data,

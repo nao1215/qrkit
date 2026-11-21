@@ -11,8 +11,7 @@ import gleam/io
 import gleam/list
 import gleam/option
 import gleam/string
-import qrkit/decode
-import qrkit/error
+import qrkit
 import simplifile
 
 const path: String = "build/interop/segno.tsv"
@@ -48,15 +47,15 @@ fn check(line: String) -> Result(String, Nil) {
   let describe = fn(got) {
     label <> " " <> quoted(expected) <> " -> " <> got <> " rows=" <> rows_text
   }
-  case decode.from_rows(rows) {
+  case qrkit.decode(rows) {
     Error(e) -> Ok("ERROR " <> describe(describe_error(e)))
     Ok(decoded) -> {
       let header_ok =
         !string.starts_with(label, "sequence-")
-        || option.is_some(decode.structured_append(decoded))
-      case decode.text(decoded) == expected && header_ok {
+        || option.is_some(decoded.structured_append)
+      case decoded.text == expected && header_ok {
         True -> Error(Nil)
-        False -> Ok("MISMATCH " <> describe(quoted(decode.text(decoded))))
+        False -> Ok("MISMATCH " <> describe(quoted(decoded.text)))
       }
     }
   }
@@ -66,16 +65,16 @@ fn quoted(text: String) -> String {
   "\"" <> string.replace(text, "\n", "\\n") <> "\""
 }
 
-fn describe_error(e: error.DecodeError) -> String {
+fn describe_error(e: qrkit.DecodeError) -> String {
   case e {
-    error.NotASymbol(width, height) ->
+    qrkit.NotASymbol(width, height) ->
       "NotASymbol("
       <> int.to_string(width)
       <> "x"
       <> int.to_string(height)
       <> ")"
-    error.UnreadableFormatInformation -> "UnreadableFormatInformation"
-    error.TooManyErrors -> "TooManyErrors"
-    error.MalformedData(reason) -> "MalformedData(" <> reason <> ")"
+    qrkit.UnreadableFormatInformation -> "UnreadableFormatInformation"
+    qrkit.TooManyErrors -> "TooManyErrors"
+    qrkit.MalformedData -> "MalformedData"
   }
 }

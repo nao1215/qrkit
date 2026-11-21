@@ -14,7 +14,6 @@ import metamon
 import metamon/generator
 import metamon/generator/seed
 import qrkit
-import qrkit/types
 import simplifile
 
 const count: Int = 600
@@ -29,19 +28,23 @@ pub fn main() -> Nil {
     |> list.filter_map(fn(input) {
       let #(text, symbol, ecc) = input
       case
-        qrkit.new(text)
-        |> qrkit.with_symbol(symbol)
-        |> qrkit.with_ecc(ecc)
-        |> qrkit.build
+        qrkit.encode_with(
+          text,
+          qrkit.EncodeOptions(
+            ..qrkit.default_encode_options(),
+            symbol: symbol,
+            error_correction: ecc,
+          ),
+        )
       {
         Error(_) -> Error(Nil)
         Ok(qr) ->
           Ok(string.join(
             [
               symbol_name(symbol),
-              qrkit.error_correction_designator(ecc),
+              ecc_letter(ecc),
               bit_array.base16_encode(bit_array.from_string(text)),
-              rows_text(qrkit.rows(qr)),
+              rows_text(qr.rows),
             ],
             "\t",
           ))
@@ -73,11 +76,11 @@ fn draw(
   }
 }
 
-fn symbol_name(symbol: types.Symbol) -> String {
+fn symbol_name(symbol: qrkit.Symbol) -> String {
   case symbol {
-    types.Standard -> "qr"
-    types.Micro -> "micro"
-    types.Rectangular -> "rmqr"
+    qrkit.Standard -> "qr"
+    qrkit.Micro -> "micro"
+    qrkit.Rectangular -> "rmqr"
   }
 }
 
@@ -93,4 +96,13 @@ fn rows_text(rows: List(List(Bool))) -> String {
     |> string.concat
   })
   |> string.join("/")
+}
+
+fn ecc_letter(ecc: qrkit.ErrorCorrection) -> String {
+  case ecc {
+    qrkit.Low -> "L"
+    qrkit.Medium -> "M"
+    qrkit.Quartile -> "Q"
+    qrkit.High -> "H"
+  }
 }

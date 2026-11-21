@@ -8,21 +8,22 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import qrkit/error.{
-  type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
-}
 import qrkit/internal/bitstream
+import qrkit/internal/error.{
+  type EncodeError, DataExceedsCapacity, ErrorCorrectionNotSupported,
+  InvalidVersion, UnsupportedCharacter,
+}
 import qrkit/internal/format_info
 import qrkit/internal/mask
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
 import qrkit/internal/segment
-import qrkit/internal/util
-import qrkit/types.{
+import qrkit/internal/types.{
   type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte, High,
-  Kanji, Low, Medium, Numeric, Quartile,
+  Kanji, Low, Medium, Micro, Numeric, Quartile,
 }
+import qrkit/internal/util
 
 const finder_size: Int = 7
 
@@ -56,7 +57,7 @@ const symbols: List(#(Int, ErrorCorrection, Int, Int)) = [
 /// Encode `text` into a Micro QR code.
 ///
 /// `exact_version` is `Some(N)` when the caller pinned the version with
-/// `qrkit.with_exact_version(N)`: the symbol is MN, and a mode, error
+/// `EncodeOptions(version: Some(N))`: the symbol is MN, and a mode, error
 /// correction level or payload that MN cannot carry returns an `Error`. When
 /// it is `None`, the encoder picks the smallest version that fits the
 /// payload.
@@ -144,14 +145,7 @@ fn segments_at(
   }
   let single = case mode_supported(single_mode, version) {
     True -> Ok([segment.single(text, single_mode)])
-    False ->
-      Error(IncompatibleOptions(
-        "Micro QR M"
-        <> int.to_string(version)
-        <> " does not support the "
-        <> mode_name(single_mode)
-        <> " mode",
-      ))
+    False -> Error(unsupported_at(text, preference, version))
   }
   case preference {
     types.ForceByte -> single
@@ -187,12 +181,37 @@ fn segments_bits(segments: List(segment.Segment), version: Int) -> Int {
   })
 }
 
-fn mode_name(selected_mode: Mode) -> String {
-  case selected_mode {
-    Numeric -> "Numeric"
-    Alphanumeric -> "Alphanumeric"
-    Byte -> "Byte"
-    Kanji -> "Kanji"
+/// The error for a payload that `version` cannot carry in any mode it
+/// allows: the first character no allowed mode can encode. `at_index`
+/// counts Unicode code points, as `mode.encode` does. `ForceByte` needs Byte
+/// mode, which M1 and M2 lack, so the first character is the culprit.
+fn unsupported_at(
+  text: String,
+  preference: ModePreference,
+  version: Int,
+) -> EncodeError {
+  let encodable = case preference, version {
+    types.ForceByte, _ -> fn(_) { False }
+    types.Auto, 1 -> mode.is_numeric_char
+    types.Auto, _ -> fn(char) {
+      mode.is_numeric_char(char) || mode.is_alphanumeric_char(char)
+    }
+  }
+  first_unsupported_character(util.characters(text), 0, encodable)
+}
+
+fn first_unsupported_character(
+  chars: List(String),
+  index: Int,
+  encodable: fn(String) -> Bool,
+) -> EncodeError {
+  case chars {
+    [] -> UnsupportedCharacter(index, "")
+    [char, ..rest] ->
+      case encodable(char) {
+        True -> first_unsupported_character(rest, index + 1, encodable)
+        False -> UnsupportedCharacter(index, char)
+      }
   }
 }
 
@@ -234,11 +253,7 @@ fn symbol(
       _, _ -> found
     }
   })
-  |> result.replace_error(IncompatibleOptions(
-    "Micro QR M"
-    <> int.to_string(version)
-    <> " does not support the requested error correction level",
-  ))
+  |> result.replace_error(ErrorCorrectionNotSupported(Micro, ecc))
 }
 
 fn validate_version(version: Int) -> Result(Nil, EncodeError) {
@@ -251,10 +266,7 @@ fn validate_version(version: Int) -> Result(Nil, EncodeError) {
 fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   case ecc {
     Low | Medium | Quartile -> Ok(Nil)
-    High ->
-      Error(IncompatibleOptions(
-        "Micro QR does not support the High error correction level",
-      ))
+    High -> Error(ErrorCorrectionNotSupported(Micro, High))
   }
 }
 
@@ -322,7 +334,7 @@ fn mode_indicator_value(selected_mode: Mode) -> Int {
 pub fn char_count_bits_for_mode(
   selected_mode: Mode,
   version: Int,
-) -> Result(Int, EncodeError) {
+) -> Result(Int, Nil) {
   case version, selected_mode {
     1, Numeric -> Ok(3)
     2, Numeric -> Ok(4)
@@ -335,10 +347,7 @@ pub fn char_count_bits_for_mode(
     4, Alphanumeric -> Ok(5)
     4, Byte -> Ok(5)
     4, Kanji -> Ok(4)
-    _, _ ->
-      Error(IncompatibleOptions(
-        "Mode is not supported by Micro QR M" <> int.to_string(version),
-      ))
+    _, _ -> Error(Nil)
   }
 }
 
@@ -349,13 +358,18 @@ fn create_codewords(
 ) -> Result(List(Int), EncodeError) {
   use capacity <- result.try(data_capacity_bits(version, ecc))
   use stream <- result.try(
-    segment.append_segments(bitstream.new(), segments, fn(segment_mode) {
-      char_count_bits_for_mode(segment_mode, version)
+    segment.append_segments(bitstream.new(), segments, fn(seg) {
+      char_count_bits_for_mode(seg.mode, version)
       |> result.map(segment.Header(
-        mode_indicator_value(segment_mode),
+        mode_indicator_value(seg.mode),
         mode_indicator_bits(version),
         _,
       ))
+      |> result.replace_error(
+        first_unsupported_character(util.characters(seg.data), seg.index, fn(_) {
+          False
+        }),
+      )
     }),
   )
   let total_bits = bitstream.length_bits(stream)
