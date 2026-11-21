@@ -5,6 +5,7 @@ import gleam/int
 import gleam/list
 import gleam/string
 import qrkit
+import qrkit/internal/util
 
 const png_signature = [137, 80, 78, 71, 13, 10, 26, 10]
 
@@ -41,14 +42,14 @@ pub fn default_options() -> PngOptions {
 /// Values less than 1 are normalised to 1 to keep the rendered
 /// output usable.
 pub fn with_module_size(options: PngOptions, px: Int) -> PngOptions {
-  PngOptions(..options, module_size: positive_or(px, default: 1))
+  PngOptions(..options, module_size: int.max(px, 1))
 }
 
 /// Set the quiet-zone margin in modules.
 ///
 /// Negative values are normalised to 0.
 pub fn with_margin(options: PngOptions, modules: Int) -> PngOptions {
-  PngOptions(..options, margin: non_negative_or(modules, default: 0))
+  PngOptions(..options, margin: int.max(modules, 0))
 }
 
 /// Set the dark module colour. Accepts `#rgb`, `#rrggbb`, or
@@ -86,7 +87,7 @@ pub fn to_bit_array_with(qr: qrkit.QrCode, options: PngOptions) -> BitArray {
     options
   let pixels =
     qrkit.rows(qr)
-    |> pad_rows(margin)
+    |> util.pad_rows(margin)
     |> scale_rows(module_size)
   let width = pixels_width(pixels)
   let height = list.length(pixels)
@@ -191,27 +192,6 @@ fn parse_hex_byte(s: String) -> Result(Int, Nil) {
   int.base_parse(s, 16)
 }
 
-fn pad_rows(rows: List(List(Bool)), margin: Int) -> List(List(Bool)) {
-  let width = case rows {
-    [first, ..] -> list.length(first)
-    [] -> 0
-  }
-  let padding = list.repeat(False, width + margin * 2)
-  let body =
-    rows
-    |> list.map(fn(row) {
-      list.append(
-        list.repeat(False, margin),
-        list.append(row, list.repeat(False, margin)),
-      )
-    })
-
-  list.append(
-    list.repeat(padding, margin),
-    list.append(body, list.repeat(padding, margin)),
-  )
-}
-
 fn scale_rows(rows: List(List(Bool)), scale: Int) -> List(List(Bool)) {
   rows
   |> list.flat_map(fn(row) {
@@ -284,7 +264,8 @@ fn pixel_bit(pixel: Bool) -> Int {
 
 fn finish_byte(current: Int, bit_count: Int) -> Int {
   let padding_bits = 8 - bit_count
-  current * power_of_two(padding_bits) + { power_of_two(padding_bits) - 1 }
+  let fill = int.bitwise_shift_left(1, padding_bits)
+  current * fill + { fill - 1 }
 }
 
 fn zlib_store(data: List(Int)) -> List(Int) {
@@ -402,20 +383,6 @@ fn prepend_reversed(values: List(a), acc: List(a)) -> List(a) {
   }
 }
 
-fn positive_or(value: Int, default default: Int) -> Int {
-  case value > 0 {
-    True -> value
-    False -> default
-  }
-}
-
-fn non_negative_or(value: Int, default default: Int) -> Int {
-  case value >= 0 {
-    True -> value
-    False -> default
-  }
-}
-
 fn u32_bytes(value: Int) -> List(Int) {
   [
     int.bitwise_and(int.bitwise_shift_right(value, 24), 0xFF),
@@ -431,11 +398,4 @@ fn low_byte(value: Int) -> Int {
 
 fn high_byte(value: Int) -> Int {
   int.bitwise_and(int.bitwise_shift_right(value, 8), 0xFF)
-}
-
-fn power_of_two(exponent: Int) -> Int {
-  case exponent <= 0 {
-    True -> 1
-    False -> 2 * power_of_two(exponent - 1)
-  }
 }

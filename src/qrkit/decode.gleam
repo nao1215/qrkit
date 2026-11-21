@@ -33,6 +33,7 @@ import qrkit/error.{
   type DecodeError, MalformedData, NotASymbol, TooManyErrors,
   UnreadableFormatInformation,
 }
+import qrkit/internal/bitstream
 import qrkit/internal/format_info
 import qrkit/internal/mask
 import qrkit/internal/micro
@@ -293,25 +294,43 @@ fn decode_standard(grid: Grid) -> Result(Decoded, DecodeError) {
     version.data_codewords(symbol_version, ecc) |> result.unwrap(0)
   let blocks = version.ec_blocks(symbol_version, ecc) |> result.unwrap(1)
   use #(data, corrected) <- result.try(correct_blocks(
-    to_bytes(list.take(bits, total * 8)),
+    bitstream.bits_to_bytes(list.take(bits, total * 8)),
     total,
     data_count,
     blocks,
   ))
   use parsed <- result.try(parse(
-    bytes_to_bits(data),
+    bitstream.bytes_to_bits(data),
     standard_profile(symbol_version),
   ))
-  Ok(Decoded(
-    parsed.text,
+  Ok(decoded(
+    parsed,
     types.Standard,
     symbol_version,
     ecc,
     mask_number,
     corrected,
+  ))
+}
+
+fn decoded(
+  parsed: Parsed,
+  symbol: Symbol,
+  version: Int,
+  ecc: ErrorCorrection,
+  mask: Int,
+  errors_corrected: Int,
+) -> Decoded {
+  Decoded(
+    parsed.text,
+    symbol,
+    version,
+    ecc,
+    mask,
+    errors_corrected,
     parsed.eci,
     parsed.structured_append,
-  ))
+  )
 }
 
 fn decode_micro(grid: Grid) -> Result(Decoded, DecodeError) {
@@ -334,27 +353,28 @@ fn decode_micro(grid: Grid) -> Result(Decoded, DecodeError) {
       // nibble, as the encoder computed the error correction over it.
       let padded_data =
         list.append(data_part, list.repeat(False, { 8 - data_bits % 8 } % 8))
-      let data_codewords = to_bytes(padded_data)
+      let data_codewords = bitstream.bits_to_bytes(padded_data)
       let received =
-        list.append(data_codewords, to_bytes(list.take(rest, ec_count * 8)))
+        list.append(
+          data_codewords,
+          bitstream.bits_to_bytes(list.take(rest, ec_count * 8)),
+        )
       use #(block, corrected) <- result.try(
         reed_solomon.correct(received, ec_count)
         |> result.replace_error(TooManyErrors),
       )
       let data =
         list.take(block, list.length(data_codewords))
-        |> bytes_to_bits
+        |> bitstream.bytes_to_bits
         |> list.take(data_bits)
       use parsed <- result.try(parse(data, micro_profile(symbol_version)))
-      Ok(Decoded(
-        parsed.text,
+      Ok(decoded(
+        parsed,
         types.Micro,
         symbol_version,
         ecc,
         mask_number,
         corrected,
-        parsed.eci,
-        parsed.structured_append,
       ))
     }
   }
@@ -373,22 +393,16 @@ fn decode_rmqr(grid: Grid, index: Int) -> Result(Decoded, DecodeError) {
         read_bits(grid, rmqr.data_module_positions(index), rmqr.mask_at)
       let total = rmqr.total_codewords(index)
       use #(data, corrected) <- result.try(correct_blocks(
-        to_bytes(list.take(bits, total * 8)),
+        bitstream.bits_to_bytes(list.take(bits, total * 8)),
         total,
         rmqr.data_codewords(index, ecc),
         rmqr.ec_block_count(index, ecc),
       ))
-      use parsed <- result.try(parse(bytes_to_bits(data), rmqr_profile(index)))
-      Ok(Decoded(
-        parsed.text,
-        types.Rectangular,
-        index + 1,
-        ecc,
-        4,
-        corrected,
-        parsed.eci,
-        parsed.structured_append,
+      use parsed <- result.try(parse(
+        bitstream.bytes_to_bits(data),
+        rmqr_profile(index),
       ))
+      Ok(decoded(parsed, types.Rectangular, index + 1, ecc, 4, corrected))
     }
   }
 }
@@ -427,32 +441,6 @@ fn correct_blocks(
         ))
       Error(Nil) -> Error(TooManyErrors)
     }
-  })
-}
-
-fn to_bytes(bits: List(Bool)) -> List(Int) {
-  list.sized_chunk(bits, 8)
-  |> list.filter(fn(chunk) { list.length(chunk) == 8 })
-  |> list.map(bits_to_int)
-}
-
-fn bits_to_int(bits: List(Bool)) -> Int {
-  list.fold(bits, 0, fn(acc, bit) {
-    acc
-    * 2
-    + case bit {
-      True -> 1
-      False -> 0
-    }
-  })
-}
-
-fn bytes_to_bits(bytes: List(Int)) -> List(Bool) {
-  list.flat_map(bytes, fn(byte) {
-    [7, 6, 5, 4, 3, 2, 1, 0]
-    |> list.map(fn(shift) {
-      int.bitwise_and(int.bitwise_shift_right(byte, shift), 1) == 1
-    })
   })
 }
 
@@ -579,10 +567,11 @@ fn parse_segments(
     True -> Ok(state)
     False -> {
       let #(indicator, rest) = list.split(bits, profile.indicator_bits)
-      case profile.segment(bits_to_int(indicator)) {
+      case profile.segment(bitstream.bits_to_int(indicator)) {
         Error(Nil) ->
           Error(MalformedData(
-            "unknown mode indicator " <> int.to_string(bits_to_int(indicator)),
+            "unknown mode indicator "
+            <> int.to_string(bitstream.bits_to_int(indicator)),
           ))
         Ok(End) -> Ok(state)
         Ok(Fnc1First) -> parse_segments(rest, profile, state)
@@ -736,9 +725,6 @@ fn power_of_ten(digits: Int) -> Int {
   }
 }
 
-const alphanumeric_table: String =
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
-
 fn read_alphanumeric(
   bits: List(Bool),
   count: Int,
@@ -761,10 +747,8 @@ fn read_alphanumeric(
 }
 
 fn alphanumeric_char(value: Int) -> Result(String, DecodeError) {
-  case value < 45 {
-    True -> Ok(string.slice(alphanumeric_table, value, 1))
-    False -> Error(MalformedData("Alphanumeric value out of range"))
-  }
+  mode.alphanumeric_char(value)
+  |> result.replace_error(MalformedData("Alphanumeric value out of range"))
 }
 
 fn kanji_character(value: Int) -> Result(String, DecodeError) {
@@ -930,7 +914,7 @@ fn take_int(
 ) -> Result(#(Int, List(Bool)), DecodeError) {
   let #(head, rest) = list.split(bits, width)
   case list.length(head) == width {
-    True -> Ok(#(bits_to_int(head), rest))
+    True -> Ok(#(bitstream.bits_to_int(head), rest))
     False -> Error(MalformedData(what <> " segment is truncated"))
   }
 }
@@ -943,7 +927,11 @@ fn take_values(
 ) -> Result(#(List(Int), List(Bool)), DecodeError) {
   let #(head, rest) = list.split(bits, count * width)
   case list.length(head) == count * width {
-    True -> Ok(#(list.sized_chunk(head, width) |> list.map(bits_to_int), rest))
+    True ->
+      Ok(#(
+        list.sized_chunk(head, width) |> list.map(bitstream.bits_to_int),
+        rest,
+      ))
     False -> Error(MalformedData(what <> " segment is truncated"))
   }
 }

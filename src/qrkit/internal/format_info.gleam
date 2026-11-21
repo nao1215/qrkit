@@ -74,7 +74,7 @@ pub fn version_bits(version: Int) -> Int {
 }
 
 fn bch_remainder(value: Int, polynomial: Int, shift: Int) -> Int {
-  do_bch_remainder(value * power_of_two(shift), polynomial)
+  do_bch_remainder(int.bitwise_shift_left(value, shift), polynomial)
 }
 
 fn do_bch_remainder(value: Int, polynomial: Int) -> Int {
@@ -84,7 +84,10 @@ fn do_bch_remainder(value: Int, polynomial: Int) -> Int {
       do_bch_remainder(
         int.bitwise_exclusive_or(
           value,
-          polynomial * power_of_two(bit_length(value) - bit_length(polynomial)),
+          int.bitwise_shift_left(
+            polynomial,
+            bit_length(value) - bit_length(polynomial),
+          ),
         ),
         polynomial,
       )
@@ -95,13 +98,6 @@ fn bit_length(value: Int) -> Int {
   case value == 0 {
     True -> 0
     False -> 1 + bit_length(int.bitwise_shift_right(value, 1))
-  }
-}
-
-fn power_of_two(value: Int) -> Int {
-  case value <= 0 {
-    True -> 1
-    False -> 2 * power_of_two(value - 1)
   }
 }
 

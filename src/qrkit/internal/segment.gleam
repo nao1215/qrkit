@@ -2,7 +2,8 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import qrkit/error.{type EncodeError, InvalidEciDesignator}
+import gleam/result
+import qrkit/error.{type EncodeError}
 import qrkit/internal/bitstream
 import qrkit/internal/mode
 import qrkit/internal/util
@@ -11,28 +12,17 @@ import qrkit/types.{
   Numeric,
 }
 
-pub opaque type Segment {
+/// A run of the payload in one mode: its characters, character count,
+/// data length in bits and the index of its first character in the whole
+/// payload.
+pub type Segment {
   Segment(mode: Mode, data: String, count: Int, bits: Int, index: Int)
 }
 
-pub fn mode(segment: Segment) -> Mode {
-  let Segment(mode, _, _, _, _) = segment
-  mode
-}
-
-pub fn data(segment: Segment) -> String {
-  let Segment(_, data, _, _, _) = segment
-  data
-}
-
-pub fn count(segment: Segment) -> Int {
-  let Segment(_, _, count, _, _) = segment
-  count
-}
-
-pub fn bits(segment: Segment) -> Int {
-  let Segment(_, _, _, bits, _) = segment
-  bits
+/// The segment header of a symbol family for one mode: the mode indicator
+/// value and width, and the width of the character count.
+pub type Header {
+  Header(indicator: Int, indicator_bits: Int, count_bits: Int)
 }
 
 pub fn optimise(
@@ -80,9 +70,9 @@ pub fn split(
     })
   case
     list.all(segments, fn(segment) {
-      header_bits(mode(segment)) != Error(Nil)
-      && list.all(util.characters(data(segment)), fn(char) {
-        char_cost(char, mode(segment)) < unreachable
+      header_bits(segment.mode) != Error(Nil)
+      && list.all(util.characters(segment.data), fn(char) {
+        char_cost(char, segment.mode) < unreachable
       })
     })
   {
@@ -96,11 +86,6 @@ pub fn single(text: String, segment_mode: Mode) -> Segment {
   build_segment(segment_mode, text, 0)
 }
 
-/// Index of the segment's first character in the whole payload.
-pub fn index(segment: Segment) -> Int {
-  segment_index(segment)
-}
-
 pub fn encoded_bits(
   segments: List(Segment),
   version: Int,
@@ -112,7 +97,7 @@ pub fn encoded_bits(
   }
   eci_bits
   + list.fold(segments, 0, fn(acc, segment) {
-    acc + 4 + mode.char_count_bits(mode(segment), version) + bits(segment)
+    acc + 4 + mode.char_count_bits(segment.mode, version) + segment.bits
   })
 }
 
@@ -123,14 +108,41 @@ pub fn append_to_stream(
   eci: Option(Int),
 ) -> Result(bitstream.BitStream, EncodeError) {
   let with_eci = case eci {
-    None -> Ok(stream)
+    None -> stream
     Some(value) -> append_eci(stream, value)
   }
-  case with_eci {
-    Error(error) -> Error(error)
-    Ok(stream_with_eci) ->
-      do_append_segments(stream_with_eci, segments, version)
-  }
+  append_segments(with_eci, segments, fn(segment_mode) {
+    Ok(Header(
+      mode.mode_bits(segment_mode),
+      4,
+      mode.char_count_bits(segment_mode, version),
+    ))
+  })
+}
+
+/// Append every segment to `stream`: the mode indicator and character count
+/// that `header` gives for its mode, then its data.
+pub fn append_segments(
+  stream: bitstream.BitStream,
+  segments: List(Segment),
+  header: fn(Mode) -> Result(Header, EncodeError),
+) -> Result(bitstream.BitStream, EncodeError) {
+  list.try_fold(segments, stream, fn(stream, segment) {
+    use Header(indicator, indicator_bits, count_bits) <- result.try(header(
+      segment.mode,
+    ))
+    use payload <- result.try(mode.encode(
+      segment.data,
+      segment.mode,
+      at_index: segment.index,
+    ))
+    Ok(
+      stream
+      |> bitstream.append_bits(indicator, size: indicator_bits)
+      |> bitstream.append_bits(segment.count, size: count_bits)
+      |> bitstream.append_bytes(payload),
+    )
+  })
 }
 
 // Costs are in sixths of a bit so that Numeric (10 bits per 3 digits) and
@@ -294,73 +306,23 @@ fn build_segment(current_mode: Mode, text: String, index: Int) -> Segment {
   )
 }
 
-fn do_append_segments(
-  stream: bitstream.BitStream,
-  segments: List(Segment),
-  version: Int,
-) -> Result(bitstream.BitStream, EncodeError) {
-  case segments {
-    [] -> Ok(stream)
-    [segment, ..rest] ->
-      case
-        mode.encode(
-          data(segment),
-          mode(segment),
-          at_index: segment_index(segment),
-        )
-      {
-        Ok(bits) ->
-          do_append_segments(
-            bitstream.append_bits(
-              stream,
-              mode.mode_bits(mode(segment)),
-              size: 4,
-            )
-              |> bitstream.append_bits(
-                count(segment),
-                size: mode.char_count_bits(mode(segment), version),
-              )
-              |> bitstream.append_bytes(bits),
-            rest,
-            version,
-          )
-        Error(error) -> Error(error)
-      }
-  }
-}
-
+/// The ECI header for `designator`, which `qrkit.build` has checked is in
+/// 0..999999.
 fn append_eci(
   stream: bitstream.BitStream,
   designator: Int,
-) -> Result(bitstream.BitStream, EncodeError) {
-  case designator < 0 || designator > 999_999 {
-    True -> Error(InvalidEciDesignator(designator))
-    False ->
-      case designator < 128 {
-        True ->
-          Ok(
-            stream
-            |> bitstream.append_bits(0b0111, size: 4)
-            |> bitstream.append_bits(designator, size: 8),
-          )
-        False ->
-          case designator < 16_384 {
-            True ->
-              Ok(
-                stream
-                |> bitstream.append_bits(0b0111, size: 4)
-                |> bitstream.append_bits(0b10, size: 2)
-                |> bitstream.append_bits(designator, size: 14),
-              )
-            False ->
-              Ok(
-                stream
-                |> bitstream.append_bits(0b0111, size: 4)
-                |> bitstream.append_bits(0b110, size: 3)
-                |> bitstream.append_bits(designator, size: 21),
-              )
-          }
-      }
+) -> bitstream.BitStream {
+  let with_indicator = bitstream.append_bits(stream, 0b0111, size: 4)
+  case designator < 128, designator < 16_384 {
+    True, _ -> bitstream.append_bits(with_indicator, designator, size: 8)
+    False, True ->
+      with_indicator
+      |> bitstream.append_bits(0b10, size: 2)
+      |> bitstream.append_bits(designator, size: 14)
+    False, False ->
+      with_indicator
+      |> bitstream.append_bits(0b110, size: 3)
+      |> bitstream.append_bits(designator, size: 21)
   }
 }
 
@@ -373,9 +335,4 @@ fn eci_designator_bits(value: Int) -> Int {
         False -> 24
       }
   }
-}
-
-fn segment_index(segment: Segment) -> Int {
-  let Segment(_, _, _, _, index) = segment
-  index
 }

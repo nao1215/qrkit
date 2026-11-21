@@ -16,16 +16,6 @@ import qrkit/internal/util
 import qrkit/internal/version
 import qrkit/types.{type ErrorCorrection, type ModePreference}
 
-pub opaque type Encoded {
-  Encoded(
-    version: Int,
-    width: Int,
-    height: Int,
-    mask: Int,
-    rows: List(List(Bool)),
-  )
-}
-
 /// Encode `text` as a Standard QR code.
 ///
 /// `min_version` is `Some(N)` when the caller explicitly pinned the version
@@ -39,7 +29,7 @@ pub fn encode(
   min_version: Option(Int),
   eci: Option(Int),
   preference: ModePreference,
-) -> Result(Encoded, EncodeError) {
+) -> Result(matrix.Encoded, EncodeError) {
   let #(lo, hi) = case min_version {
     None -> #(1, 40)
     Some(n) -> #(n, n)
@@ -57,7 +47,7 @@ pub fn encode_prefixed(
   eci: Option(Int),
   preference: ModePreference,
   prefix_bits: BitArray,
-) -> Result(Encoded, EncodeError) {
+) -> Result(matrix.Encoded, EncodeError) {
   let prefix_length = bit_array.bit_size(prefix_bits)
   case
     choose_version(
@@ -85,12 +75,10 @@ pub fn encode_prefixed(
         Ok(codewords) ->
           case build_matrix(chosen_version, ecc, codewords) {
             Ok(#(best_mask, final_matrix)) ->
-              Ok(Encoded(
-                chosen_version,
-                matrix.width(final_matrix),
-                matrix.height(final_matrix),
-                best_mask,
-                matrix.rows(final_matrix),
+              Ok(matrix.encoded(
+                final_matrix,
+                version: chosen_version,
+                mask: best_mask,
               ))
             Error(error) -> Error(error)
           }
@@ -170,31 +158,6 @@ fn best_version_in_range(
     Error(error), _ -> Error(error)
     _, Error(error) -> Error(error)
   }
-}
-
-pub fn version(encoded: Encoded) -> Int {
-  let Encoded(version, _, _, _, _) = encoded
-  version
-}
-
-pub fn width(encoded: Encoded) -> Int {
-  let Encoded(_, width, _, _, _) = encoded
-  width
-}
-
-pub fn height(encoded: Encoded) -> Int {
-  let Encoded(_, _, height, _, _) = encoded
-  height
-}
-
-pub fn rows(encoded: Encoded) -> List(List(Bool)) {
-  let Encoded(_, _, _, _, rows) = encoded
-  rows
-}
-
-pub fn mask(encoded: Encoded) -> Int {
-  let Encoded(_, _, _, mask, _) = encoded
-  mask
 }
 
 fn create_codewords_prefixed(
@@ -346,12 +309,9 @@ fn function_patterns(chosen_version: Int, size: Int) -> matrix.Matrix {
 pub fn data_module_positions(chosen_version: Int) -> List(#(Int, Int)) {
   case version.symbol_size(chosen_version) {
     Ok(size) ->
-      data_positions(
+      matrix.data_positions(
         function_patterns(chosen_version, size),
-        size - 1,
-        size - 1,
-        -1,
-        [],
+        skip_column: Some(timing_column),
       )
     Error(_) -> []
   }
@@ -365,72 +325,52 @@ pub fn read_format_copies(
 ) -> #(Int, Int) {
   util.range(0, 14)
   |> list.fold(#(0, 0), fn(acc, index) {
-    let vertical_row = case index < 6 {
-      True -> index
-      False ->
-        case index < 8 {
-          True -> index + 1
-          False -> size - 15 + index
-        }
-    }
-    let horizontal_col = case index < 8 {
-      True -> size - index - 1
-      False ->
-        case index < 9 {
-          True -> 15 - index
-          False -> 14 - index
-        }
-    }
-    let weight = power_of_two(index)
+    let #(vertical_row, horizontal_col) = format_info_position(index, size)
+    let weight = int.bitwise_shift_left(1, index)
     #(
-      acc.0 + bool_value(module(vertical_row, 8)) * weight,
-      acc.1 + bool_value(module(8, horizontal_col)) * weight,
+      acc.0 + util.bool_to_int(module(vertical_row, 8)) * weight,
+      acc.1 + util.bool_to_int(module(8, horizontal_col)) * weight,
     )
   })
 }
 
-fn bool_value(value: Bool) -> Int {
-  case value {
-    True -> 1
-    False -> 0
+/// Where bit `index` (0..14) of the format information goes: the row of the
+/// copy in column 8 and the column of the copy in row 8.
+fn format_info_position(index: Int, size: Int) -> #(Int, Int) {
+  let vertical_row = case index < 6, index < 8 {
+    True, _ -> index
+    False, True -> index + 1
+    False, False -> size - 15 + index
   }
+  let horizontal_col = case index < 8, index < 9 {
+    True, _ -> size - index - 1
+    False, True -> 15 - index
+    False, False -> 14 - index
+  }
+  #(vertical_row, horizontal_col)
 }
 
+/// Try the eight masks and keep the one with the lowest penalty; the lowest
+/// mask number wins a tie.
 fn choose_best_mask(
   target: matrix.Matrix,
   ecc: ErrorCorrection,
 ) -> #(Int, matrix.Matrix) {
-  choose_best_mask_loop(target, ecc, 0, #(0, target), 0)
-}
-
-fn choose_best_mask_loop(
-  target: matrix.Matrix,
-  ecc: ErrorCorrection,
-  candidate: Int,
-  best: #(Int, matrix.Matrix),
-  best_penalty: Int,
-) -> #(Int, matrix.Matrix) {
-  case candidate > 7 {
-    True -> best
-    False -> {
-      let masked =
-        mask.apply(candidate, to: target)
-        |> setup_format_info(ecc, candidate)
-      let penalty = mask.penalty_total(masked)
-      case candidate == 0 || penalty < best_penalty {
-        True ->
-          choose_best_mask_loop(
-            target,
-            ecc,
-            candidate + 1,
-            #(candidate, masked),
-            penalty,
-          )
-        False ->
-          choose_best_mask_loop(target, ecc, candidate + 1, best, best_penalty)
-      }
-    }
+  let evaluate = fn(candidate) {
+    let masked =
+      mask.apply(candidate, to: target)
+      |> setup_format_info(ecc, candidate)
+    #(candidate, masked, mask.penalty_total(masked))
   }
+  let #(best_mask, best_matrix, _) =
+    list.fold([1, 2, 3, 4, 5, 6, 7], evaluate(0), fn(best, candidate) {
+      let next = evaluate(candidate)
+      case next.2 < best.2 {
+        True -> next
+        False -> best
+      }
+    })
+  #(best_mask, best_matrix)
 }
 
 fn setup_finder_patterns(target: matrix.Matrix) -> matrix.Matrix {
@@ -530,7 +470,7 @@ fn setup_version_info(
   |> list.fold(target, fn(acc, index) {
     let row = index / 3
     let col = index % 3 + matrix.width(acc) - 11
-    let dark = bit_at(bits, index)
+    let dark = util.bit_at(bits, index)
     acc
     |> matrix.set(row, col, dark, reserved: True)
     |> matrix.set(col, row, dark, reserved: True)
@@ -547,23 +487,8 @@ fn setup_format_info(
   let with_info =
     util.range(0, 14)
     |> list.fold(target, fn(acc, index) {
-      let dark = bit_at(bits, index)
-      let vertical_row = case index < 6 {
-        True -> index
-        False ->
-          case index < 8 {
-            True -> index + 1
-            False -> size - 15 + index
-          }
-      }
-      let horizontal_col = case index < 8 {
-        True -> size - index - 1
-        False ->
-          case index < 9 {
-            True -> 15 - index
-            False -> 14 - index
-          }
-      }
+      let dark = util.bit_at(bits, index)
+      let #(vertical_row, horizontal_col) = format_info_position(index, size)
       acc
       |> matrix.set(vertical_row, 8, dark, reserved: True)
       |> matrix.set(8, horizontal_col, dark, reserved: True)
@@ -572,106 +497,15 @@ fn setup_format_info(
 }
 
 fn setup_data(target: matrix.Matrix, codewords: List(Int)) -> matrix.Matrix {
-  let bits = codewords_to_bits(codewords, [])
-  let positions =
-    data_positions(
-      target,
-      matrix.width(target) - 1,
-      matrix.width(target) - 1,
-      -1,
-      [],
-    )
-  place_bits(target, positions, bits)
+  matrix.write_bits(
+    target,
+    matrix.data_positions(target, skip_column: Some(timing_column)),
+    bitstream.bytes_to_bits(codewords),
+  )
 }
 
-fn codewords_to_bits(codewords: List(Int), acc: List(Bool)) -> List(Bool) {
-  case codewords {
-    [] -> list.reverse(acc)
-    [byte, ..rest] ->
-      codewords_to_bits(rest, [
-        bit_at(byte, 0),
-        bit_at(byte, 1),
-        bit_at(byte, 2),
-        bit_at(byte, 3),
-        bit_at(byte, 4),
-        bit_at(byte, 5),
-        bit_at(byte, 6),
-        bit_at(byte, 7),
-        ..acc
-      ])
-  }
-}
-
-fn data_positions(
-  target: matrix.Matrix,
-  col: Int,
-  row: Int,
-  inc: Int,
-  acc: List(#(Int, Int)),
-) -> List(#(Int, Int)) {
-  case col <= 0 {
-    True -> list.reverse(acc)
-    False -> {
-      let actual_col = case col == 6 {
-        True -> 5
-        False -> col
-      }
-      let #(next_acc, next_row, next_inc) =
-        scan_column_pair(target, actual_col, row, inc, acc)
-      data_positions(target, actual_col - 2, next_row, next_inc, next_acc)
-    }
-  }
-}
-
-fn scan_column_pair(
-  target: matrix.Matrix,
-  col: Int,
-  row: Int,
-  inc: Int,
-  acc: List(#(Int, Int)),
-) -> #(List(#(Int, Int)), Int, Int) {
-  let with_right = reserve_if_data(target, row, col, acc)
-  let with_both = reserve_if_data(target, row, col - 1, with_right)
-  let next_row = row + inc
-  case next_row < 0 || next_row >= matrix.height(target) {
-    True -> #(with_both, row, 0 - inc)
-    False -> scan_column_pair(target, col, next_row, inc, with_both)
-  }
-}
-
-fn reserve_if_data(
-  target: matrix.Matrix,
-  row: Int,
-  col: Int,
-  acc: List(#(Int, Int)),
-) -> List(#(Int, Int)) {
-  case matrix.is_reserved(target, row, col) {
-    True -> acc
-    False -> [#(row, col), ..acc]
-  }
-}
-
-fn place_bits(
-  target: matrix.Matrix,
-  positions: List(#(Int, Int)),
-  bits: List(Bool),
-) -> matrix.Matrix {
-  case positions, bits {
-    [#(row, col), ..rest_positions], [bit, ..rest_bits] ->
-      place_bits(
-        matrix.set(target, row, col, bit, reserved: False),
-        rest_positions,
-        rest_bits,
-      )
-    [#(row, col), ..rest_positions], [] ->
-      place_bits(
-        matrix.set(target, row, col, False, reserved: False),
-        rest_positions,
-        [],
-      )
-    [], _ -> target
-  }
-}
+/// The vertical timing pattern, which data column pairs step over.
+const timing_column: Int = 6
 
 fn alignment_positions(chosen_version: Int) -> List(#(Int, Int)) {
   case chosen_version == 1 {
@@ -753,17 +587,6 @@ fn finder_overlap(row: Int, col: Int, size: Int) -> Bool {
 
 fn ceil_div(numerator: Int, denominator: Int) -> Int {
   { numerator + denominator - 1 } / denominator
-}
-
-fn bit_at(value: Int, index: Int) -> Bool {
-  value / power_of_two(index) % 2 == 1
-}
-
-fn power_of_two(index: Int) -> Int {
-  case index <= 0 {
-    True -> 1
-    False -> 2 * power_of_two(index - 1)
-  }
 }
 
 fn inside(target: matrix.Matrix, row: Int, col: Int) -> Bool {

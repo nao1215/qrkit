@@ -13,6 +13,7 @@ import qrkit/error.{
   type EncodeError, DataExceedsCapacity, EmptyInput, InvalidVersion,
 }
 import qrkit/internal/bitstream
+import qrkit/internal/matrix
 import qrkit/internal/standard
 import qrkit/internal/util
 import qrkit/internal/version
@@ -22,12 +23,12 @@ import qrkit/types.{type ErrorCorrection, Auto}
 const max_symbols: Int = 16
 
 /// Encode the data using as few shards as possible while respecting
-/// `max_version` per shard. Returns a list of `standard.Encoded` symbols.
+/// `max_version` per shard. Returns a list of `matrix.Encoded` symbols.
 pub fn encode(
   data: String,
   max_version: Int,
   ecc: ErrorCorrection,
-) -> Result(List(standard.Encoded), EncodeError) {
+) -> Result(List(matrix.Encoded), EncodeError) {
   case data == "" {
     True -> Error(EmptyInput)
     False ->
@@ -57,7 +58,7 @@ fn find_split(
   max_version: Int,
   ecc: ErrorCorrection,
   total: Int,
-) -> Result(List(standard.Encoded), EncodeError) {
+) -> Result(List(matrix.Encoded), EncodeError) {
   case total > max_symbols {
     True -> Error(no_split_fits_error(data, max_version, ecc))
     False -> {
@@ -101,7 +102,7 @@ fn encode_shards(
   total: Int,
   max_version: Int,
   ecc: ErrorCorrection,
-) -> Result(List(standard.Encoded), EncodeError) {
+) -> Result(List(matrix.Encoded), EncodeError) {
   case total {
     1 ->
       case
@@ -130,8 +131,8 @@ fn encode_multiple_shards(
   max_version: Int,
   ecc: ErrorCorrection,
   index: Int,
-  acc: List(standard.Encoded),
-) -> Result(List(standard.Encoded), EncodeError) {
+  acc: List(matrix.Encoded),
+) -> Result(List(matrix.Encoded), EncodeError) {
   case chunks {
     [] -> Ok(list.reverse(acc))
     [chunk, ..rest] -> {

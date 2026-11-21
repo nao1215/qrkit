@@ -249,6 +249,11 @@ fn do_encode_kanji(
   }
 }
 
+/// The character with Alphanumeric mode value `value` (0..44).
+pub fn alphanumeric_char(value: Int) -> Result(String, Nil) {
+  util.at(alphanumeric_chars, value)
+}
+
 fn alphanumeric_value(char: String) -> Result(Int, Nil) {
   do_alphanumeric_value(alphanumeric_chars, char, 0)
 }

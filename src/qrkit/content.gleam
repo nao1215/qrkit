@@ -135,11 +135,11 @@ pub fn with_address(card: VCard, address: String) -> VCard {
 pub fn vcard_to_string(card: VCard) -> String {
   let VCard(name, phone, email, url, organization, title, address) = card
   let n_value = case name {
-    Some(n) -> escape_vcard(n)
+    Some(n) -> escape_text(n)
     None -> ";;;;"
   }
   let fn_value = case name {
-    Some(n) -> escape_vcard(n)
+    Some(n) -> escape_text(n)
     None -> ""
   }
   [
@@ -147,12 +147,12 @@ pub fn vcard_to_string(card: VCard) -> String {
     Some("VERSION:3.0"),
     Some("N:" <> n_value),
     Some("FN:" <> fn_value),
-    option_line_with("ORG", organization, escape_vcard),
-    option_line_with("TITLE", title, escape_vcard),
-    option_line_with("TEL", phone, escape_vcard),
-    option_line_with("EMAIL", email, escape_vcard),
-    option_line_with("URL", url, escape_vcard),
-    option_line_with("ADR", address, escape_vcard),
+    option_line_with("ORG", organization, escape_text),
+    option_line_with("TITLE", title, escape_text),
+    option_line_with("TEL", phone, escape_text),
+    option_line_with("EMAIL", email, escape_text),
+    option_line_with("URL", url, escape_text),
+    option_line_with("ADR", address, escape_text),
     Some("END:VCARD"),
   ]
   |> present_lines([])
@@ -272,11 +272,11 @@ pub fn event_to_string(event: CalendarEvent) -> String {
     Some("BEGIN:VEVENT"),
     Some("UID:" <> uid),
     Some("DTSTAMP:" <> dtstamp),
-    Some("SUMMARY:" <> escape_ical(title)),
+    Some("SUMMARY:" <> escape_text(title)),
     Some(start_key <> ":" <> start_value),
     Some(end_key <> ":" <> end_value),
-    option_line_with("LOCATION", location, escape_ical),
-    option_line_with("DESCRIPTION", description, escape_ical),
+    option_line_with("LOCATION", location, escape_text),
+    option_line_with("DESCRIPTION", description, escape_text),
     Some("END:VEVENT"),
     Some("END:VCALENDAR"),
   ]
@@ -511,23 +511,11 @@ fn hex_digit(nibble: Int) -> String {
   }
 }
 
-fn escape_vcard(value: String) -> String {
-  // Strip raw CR and NUL (RFC 2426 §2.4.2 forbids them in TEXT
-  // values), then escape the four reserved characters in spec
-  // order — backslash first so subsequent escapes are not
-  // double-escaped.
-  value
-  |> string.replace(each: "\r", with: "")
-  |> string.replace(each: "\u{0000}", with: "")
-  |> string.replace(each: "\\", with: "\\\\")
-  |> string.replace(each: "\n", with: "\\n")
-  |> string.replace(each: ",", with: "\\,")
-  |> string.replace(each: ";", with: "\\;")
-}
-
-fn escape_ical(value: String) -> String {
-  // Same TEXT-value rules as vCard (RFC 5545 §3.3.11): strip raw CR
-  // and NUL before escaping the reserved set.
+fn escape_text(value: String) -> String {
+  // vCard (RFC 2426 §2.4.2) and iCalendar (RFC 5545 §3.3.11) share the
+  // TEXT-value rules. Strip raw CR and NUL, which neither allows, then
+  // escape the four reserved characters, backslash first so the later
+  // escapes are not escaped again.
   value
   |> string.replace(each: "\r", with: "")
   |> string.replace(each: "\u{0000}", with: "")

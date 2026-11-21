@@ -8,11 +8,13 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
+import gleam/result
 import qrkit/error.{
   type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
 import qrkit/internal/bitstream
 import qrkit/internal/format_info
+import qrkit/internal/mask
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
@@ -22,37 +24,6 @@ import qrkit/types.{
   type ErrorCorrection, type Mode, type ModePreference, type RectangularPriority,
   Alphanumeric, Byte, High, Kanji, Medium, NarrowestWidth, Numeric,
   ShortestHeight, SmallestArea,
-}
-
-pub opaque type Encoded {
-  Encoded(version: Int, width: Int, height: Int, rows: List(List(Bool)))
-}
-
-pub fn version(encoded: Encoded) -> Int {
-  let Encoded(version, _, _, _) = encoded
-  version
-}
-
-pub fn width(encoded: Encoded) -> Int {
-  let Encoded(_, width, _, _) = encoded
-  width
-}
-
-pub fn height(encoded: Encoded) -> Int {
-  let Encoded(_, _, height, _) = encoded
-  height
-}
-
-pub fn rows(encoded: Encoded) -> List(List(Bool)) {
-  let Encoded(_, _, _, rows) = encoded
-  rows
-}
-
-/// The mask number associated with the rMQR's fixed bitmask. rMQR has no
-/// per-symbol mask selection, so this is always `4` — the index that the
-/// `((row / 2 + col / 3)) % 2 == 0` pattern shares with Standard QR mask 4.
-pub fn mask(_encoded: Encoded) -> Int {
-  4
 }
 
 const total_versions: Int = 32
@@ -157,21 +128,23 @@ pub fn encode(
   requested_version: Option(Int),
   preference: ModePreference,
   priority: RectangularPriority,
-) -> Result(Encoded, EncodeError) {
-  use _ <- result_try(validate_ecc(ecc))
-  use #(chosen, segments) <- result_try(resolve_version(
+) -> Result(matrix.Encoded, EncodeError) {
+  use _ <- result.try(validate_ecc(ecc))
+  use #(chosen, segments) <- result.try(resolve_version(
     text,
     ecc,
     requested_version,
     preference,
     priority,
   ))
-  use codewords <- result_try(create_codewords(segments, ecc, chosen))
+  use codewords <- result.try(create_codewords(segments, ecc, chosen))
   let h_size = lookup_int(widths, chosen)
   let v_size = lookup_int(heights, chosen)
   let total = lookup_int(total_codewords_table, chosen)
   let final_matrix = build_matrix(chosen, ecc, h_size, v_size, total, codewords)
-  Ok(Encoded(chosen + 1, h_size, v_size, matrix.rows(final_matrix)))
+  // rMQR has one fixed mask. It is reported as 4, the Standard QR mask with
+  // the same `(row / 2 + col / 3) % 2 == 0` pattern.
+  Ok(matrix.encoded(final_matrix, version: chosen + 1, mask: 4))
 }
 
 fn resolve_version(
@@ -232,7 +205,7 @@ fn segments_at(
 
 fn segments_bits(segments: List(segment.Segment), index: Int) -> Int {
   list.fold(segments, 0, fn(acc, seg) {
-    acc + 3 + lookup_cci(segment.mode(seg), index) + segment.bits(seg)
+    acc + 3 + lookup_cci(seg.mode, index) + seg.bits
   })
 }
 
@@ -348,22 +321,13 @@ fn create_codewords(
   index: Int,
 ) -> Result(List(Int), EncodeError) {
   let capacity = data_capacity_bits(index, ecc)
-  use stream <- result_try(
-    list.try_fold(segments, bitstream.new(), fn(stream, seg) {
-      use payload <- result_try(mode.encode(
-        segment.data(seg),
-        segment.mode(seg),
-        at_index: segment.index(seg),
+  use stream <- result.try(
+    segment.append_segments(bitstream.new(), segments, fn(segment_mode) {
+      Ok(segment.Header(
+        mode_indicator(segment_mode),
+        3,
+        lookup_cci(segment_mode, index),
       ))
-      Ok(
-        stream
-        |> bitstream.append_bits(mode_indicator(segment.mode(seg)), size: 3)
-        |> bitstream.append_bits(
-          segment.count(seg),
-          size: lookup_cci(segment.mode(seg), index),
-        )
-        |> bitstream.append_bytes(payload),
-      )
     }),
   )
   let stream = append_terminator(stream, capacity)
@@ -437,7 +401,7 @@ fn build_matrix(
       total_codewords,
       codewords,
     )
-  let masked = apply_fixed_mask(placed)
+  let masked = mask.apply_with(placed, mask_at)
   place_format_info(masked, index, ecc, h_size, v_size)
 }
 
@@ -479,36 +443,43 @@ pub fn index_for_size(width: Int, height: Int) -> Result(Int, Nil) {
 }
 
 /// The two 18-bit copies of the format information of a symbol given as
-/// `module(row, col)`, in the bit order `place_left_format` and
-/// `place_right_format` write.
+/// `module(row, col)`, in the bit order `place_format_info` writes.
 pub fn read_format(
   module: fn(Int, Int) -> Bool,
   h_size: Int,
   v_size: Int,
 ) -> #(Int, Int) {
-  let read = fn(row0, col0, extra_row, extra_col) {
-    let main =
-      util.range(0, 4)
-      |> list.fold(0, fn(acc, i) {
-        util.range(0, 2)
-        |> list.fold(acc, fn(acc2, j) {
-          case module(row0 + i, col0 + j) {
-            True -> acc2 + power_of_two(j * 5 + i)
-            False -> acc2
-          }
-        })
-      })
-    util.range(0, 2)
-    |> list.fold(main, fn(acc, k) {
-      case module(extra_row(k), extra_col(k)) {
-        True -> acc + power_of_two(15 + k)
+  let read = fn(positions) {
+    list.index_fold(positions, 0, fn(acc, position, bit) {
+      let #(row, col) = position
+      case module(row, col) {
+        True -> acc + int.bitwise_shift_left(1, bit)
         False -> acc
       }
     })
   }
+  let #(left, right) = format_info_modules(h_size, v_size)
+  #(read(left), read(right))
+}
+
+/// The `(row, col)` of each bit of the two 18-bit format information copies,
+/// bit 0 first: beside the finder pattern, and beside the sub-finder.
+fn format_info_modules(
+  h_size: Int,
+  v_size: Int,
+) -> #(List(#(Int, Int)), List(#(Int, Int))) {
+  let copy = fn(top, left, extra) {
+    util.range(0, 14)
+    |> list.map(fn(bit) { #(top + bit % 5, left + bit / 5) })
+    |> list.append(extra)
+  }
   #(
-    read(1, 8, fn(k) { k + 1 }, fn(_) { 11 }),
-    read(v_size - 6, h_size - 8, fn(_) { v_size - 6 }, fn(k) { h_size - 5 + k }),
+    copy(1, 8, [#(1, 11), #(2, 11), #(3, 11)]),
+    copy(v_size - 6, h_size - 8, [
+      #(v_size - 6, h_size - 5),
+      #(v_size - 6, h_size - 4),
+      #(v_size - 6, h_size - 3),
+    ]),
   )
 }
 
@@ -718,30 +689,10 @@ fn reserve_format_info(
   h_size: Int,
   v_size: Int,
 ) -> matrix.Matrix {
-  let left_main =
-    util.range(0, 4)
-    |> list.fold(target, fn(acc_i, i) {
-      util.range(0, 2)
-      |> list.fold(acc_i, fn(acc_j, j) {
-        matrix.set(acc_j, i + 1, j + 8, False, reserved: True)
-      })
-    })
-  let left_extra =
-    util.range(1, 3)
-    |> list.fold(left_main, fn(acc, row) {
-      matrix.set(acc, row, 11, False, reserved: True)
-    })
-  let right_main =
-    util.range(0, 4)
-    |> list.fold(left_extra, fn(acc_i, i) {
-      util.range(0, 2)
-      |> list.fold(acc_i, fn(acc_j, j) {
-        matrix.set(acc_j, v_size - 6 + i, h_size - 8 + j, False, reserved: True)
-      })
-    })
-  util.range(0, 2)
-  |> list.fold(right_main, fn(acc, k) {
-    matrix.set(acc, v_size - 6, h_size - 5 + k, False, reserved: True)
+  let #(left, right) = format_info_modules(h_size, v_size)
+  list.append(left, right)
+  |> list.fold(target, fn(acc, position) {
+    matrix.set(acc, position.0, position.1, False, reserved: True)
   })
 }
 
@@ -752,38 +703,11 @@ fn place_data(
   total_codewords: Int,
   codewords: List(Int),
 ) -> matrix.Matrix {
-  let bits = codewords_to_bits(codewords, [])
-  let positions = data_positions(target, h_size, v_size, total_codewords)
-  write_bits(target, positions, bits)
-}
-
-fn codewords_to_bits(codewords: List(Int), acc: List(Bool)) -> List(Bool) {
-  case codewords {
-    [] -> list.reverse(acc)
-    [byte, ..rest] ->
-      codewords_to_bits(rest, [
-        bit_at(byte, 0),
-        bit_at(byte, 1),
-        bit_at(byte, 2),
-        bit_at(byte, 3),
-        bit_at(byte, 4),
-        bit_at(byte, 5),
-        bit_at(byte, 6),
-        bit_at(byte, 7),
-        ..acc
-      ])
-  }
-}
-
-fn bit_at(byte: Int, position: Int) -> Bool {
-  byte / power_of_two(position) % 2 == 1
-}
-
-fn power_of_two(index: Int) -> Int {
-  case index <= 0 {
-    True -> 1
-    False -> 2 * power_of_two(index - 1)
-  }
+  matrix.write_bits(
+    target,
+    data_positions(target, h_size, v_size, total_codewords),
+    bitstream.bytes_to_bits(codewords),
+  )
 }
 
 fn data_positions(
@@ -850,46 +774,6 @@ fn advance(v_size: Int, x: Int, y: Int, direction: Int) -> #(Int, Int, Int) {
   }
 }
 
-fn write_bits(
-  target: matrix.Matrix,
-  positions: List(#(Int, Int)),
-  bits: List(Bool),
-) -> matrix.Matrix {
-  case positions, bits {
-    [#(row, col), ..rest_positions], [bit, ..rest_bits] ->
-      write_bits(
-        matrix.set(target, row, col, bit, reserved: False),
-        rest_positions,
-        rest_bits,
-      )
-    _, _ -> target
-  }
-}
-
-fn apply_fixed_mask(target: matrix.Matrix) -> matrix.Matrix {
-  do_apply_mask(target, 0, 0)
-}
-
-fn do_apply_mask(target: matrix.Matrix, row: Int, col: Int) -> matrix.Matrix {
-  case row >= matrix.height(target) {
-    True -> target
-    False ->
-      case col >= matrix.width(target) {
-        True -> do_apply_mask(target, row + 1, 0)
-        False ->
-          case matrix.is_reserved(target, row, col) {
-            True -> do_apply_mask(target, row, col + 1)
-            False ->
-              do_apply_mask(
-                matrix.xor(target, row, col, mask_at(row, col)),
-                row,
-                col + 1,
-              )
-          }
-      }
-  }
-}
-
 fn place_format_info(
   target: matrix.Matrix,
   index: Int,
@@ -901,55 +785,19 @@ fn place_format_info(
     High -> index + 32
     _ -> index
   }
-  let left = lookup_int(format_info_left, table_index)
-  let right = lookup_int(format_info_right, table_index)
-  let with_left = place_left_format(target, left)
-  place_right_format(with_left, right, h_size, v_size)
+  let #(left, right) = format_info_modules(h_size, v_size)
+  target
+  |> place_format_copy(left, lookup_int(format_info_left, table_index))
+  |> place_format_copy(right, lookup_int(format_info_right, table_index))
 }
 
-fn place_left_format(target: matrix.Matrix, bits: Int) -> matrix.Matrix {
-  let main =
-    util.range(0, 4)
-    |> list.fold(target, fn(acc_i, i) {
-      util.range(0, 2)
-      |> list.fold(acc_i, fn(acc_j, j) {
-        let dark = bit_at(bits, j * 5 + i)
-        matrix.set(acc_j, i + 1, j + 8, dark, reserved: True)
-      })
-    })
-  main
-  |> matrix.set(1, 11, bit_at(bits, 15), reserved: True)
-  |> matrix.set(2, 11, bit_at(bits, 16), reserved: True)
-  |> matrix.set(3, 11, bit_at(bits, 17), reserved: True)
-}
-
-fn place_right_format(
+fn place_format_copy(
   target: matrix.Matrix,
+  positions: List(#(Int, Int)),
   bits: Int,
-  h_size: Int,
-  v_size: Int,
 ) -> matrix.Matrix {
-  let main =
-    util.range(0, 4)
-    |> list.fold(target, fn(acc_i, i) {
-      util.range(0, 2)
-      |> list.fold(acc_i, fn(acc_j, j) {
-        let dark = bit_at(bits, j * 5 + i)
-        matrix.set(acc_j, v_size - 6 + i, h_size - 8 + j, dark, reserved: True)
-      })
-    })
-  main
-  |> matrix.set(v_size - 6, h_size - 5, bit_at(bits, 15), reserved: True)
-  |> matrix.set(v_size - 6, h_size - 4, bit_at(bits, 16), reserved: True)
-  |> matrix.set(v_size - 6, h_size - 3, bit_at(bits, 17), reserved: True)
-}
-
-fn result_try(
-  result: Result(a, EncodeError),
-  callback: fn(a) -> Result(b, EncodeError),
-) -> Result(b, EncodeError) {
-  case result {
-    Ok(value) -> callback(value)
-    Error(error) -> Error(error)
-  }
+  list.index_fold(positions, target, fn(acc, position, bit) {
+    let #(row, col) = position
+    matrix.set(acc, row, col, util.bit_at(bits, bit), reserved: True)
+  })
 }

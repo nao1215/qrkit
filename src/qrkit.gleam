@@ -2,7 +2,9 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import qrkit/error
+import qrkit/internal/matrix
 import qrkit/internal/micro
 import qrkit/internal/rmqr
 import qrkit/internal/standard
@@ -163,58 +165,29 @@ pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
         Ok(Nil) ->
           case symbol {
             types.Standard ->
-              case standard.encode(data, ecc, min_version, eci, preference) {
-                Ok(encoded) ->
-                  Ok(QrCode(
-                    standard.version(encoded),
-                    standard.width(encoded),
-                    standard.height(encoded),
-                    ecc,
-                    symbol,
-                    standard.mask(encoded),
-                    standard.rows(encoded),
-                  ))
-                Error(encode_error) -> Error(encode_error)
-              }
-            types.Micro ->
-              case micro.encode(data, ecc, min_version, preference) {
-                Ok(encoded) ->
-                  Ok(QrCode(
-                    micro.version(encoded),
-                    micro.width(encoded),
-                    micro.height(encoded),
-                    ecc,
-                    symbol,
-                    micro.mask(encoded),
-                    micro.rows(encoded),
-                  ))
-                Error(encode_error) -> Error(encode_error)
-              }
+              standard.encode(data, ecc, min_version, eci, preference)
+            types.Micro -> micro.encode(data, ecc, min_version, preference)
             types.Rectangular ->
-              case
-                rmqr.encode(
-                  data,
-                  ecc,
-                  min_version,
-                  preference,
-                  option.unwrap(priority, types.SmallestArea),
-                )
-              {
-                Ok(encoded) ->
-                  Ok(QrCode(
-                    rmqr.version(encoded),
-                    rmqr.width(encoded),
-                    rmqr.height(encoded),
-                    ecc,
-                    symbol,
-                    rmqr.mask(encoded),
-                    rmqr.rows(encoded),
-                  ))
-                Error(encode_error) -> Error(encode_error)
-              }
+              rmqr.encode(
+                data,
+                ecc,
+                min_version,
+                preference,
+                option.unwrap(priority, types.SmallestArea),
+              )
           }
+          |> result.map(from_encoded(_, ecc, symbol))
       }
   }
+}
+
+fn from_encoded(
+  encoded: matrix.Encoded,
+  ecc: ErrorCorrection,
+  symbol: Symbol,
+) -> QrCode {
+  let matrix.Encoded(version:, width:, height:, mask:, rows:) = encoded
+  QrCode(version:, width:, height:, ecc:, symbol:, mask:, rows:)
 }
 
 fn validate_builder_options(
@@ -298,23 +271,8 @@ pub fn encode_split_with(
   max_version: Int,
   ecc: ErrorCorrection,
 ) -> Result(List(QrCode), EncodeError) {
-  case structured_append.encode(data, max_version, ecc) {
-    Error(error) -> Error(error)
-    Ok(encodes) ->
-      Ok(
-        list.map(encodes, fn(encoded) {
-          QrCode(
-            standard.version(encoded),
-            standard.width(encoded),
-            standard.height(encoded),
-            ecc,
-            types.Standard,
-            standard.mask(encoded),
-            standard.rows(encoded),
-          )
-        }),
-      )
-  }
+  structured_append.encode(data, max_version, ecc)
+  |> result.map(list.map(_, from_encoded(_, ecc, types.Standard)))
 }
 
 /// Return the symbol version number. Standard QR returns 1..40, Micro QR 1..4

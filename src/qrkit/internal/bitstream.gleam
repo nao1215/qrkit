@@ -2,6 +2,7 @@
 
 import gleam/bit_array
 import gleam/list
+import qrkit/internal/util
 
 pub opaque type BitStream {
   BitStream(parts: List(BitArray), length_bits: Int)
@@ -53,4 +54,36 @@ fn do_to_byte_list(bits: BitArray, acc: List(Int)) -> List(Int) {
     <<byte, rest:bytes>> -> do_to_byte_list(rest, [byte, ..acc])
     _ -> list.reverse(acc)
   }
+}
+
+/// The bits of `bytes`, most significant bit of each byte first.
+pub fn bytes_to_bits(bytes: List(Int)) -> List(Bool) {
+  bytes
+  |> list.fold([], fn(acc, byte) {
+    [
+      util.bit_at(byte, 0),
+      util.bit_at(byte, 1),
+      util.bit_at(byte, 2),
+      util.bit_at(byte, 3),
+      util.bit_at(byte, 4),
+      util.bit_at(byte, 5),
+      util.bit_at(byte, 6),
+      util.bit_at(byte, 7),
+      ..acc
+    ]
+  })
+  |> list.reverse
+}
+
+/// Group `bits` into bytes, most significant bit first. A final group of
+/// fewer than 8 bits is dropped.
+pub fn bits_to_bytes(bits: List(Bool)) -> List(Int) {
+  list.sized_chunk(bits, 8)
+  |> list.filter(fn(chunk) { list.length(chunk) == 8 })
+  |> list.map(bits_to_int)
+}
+
+/// The unsigned integer `bits` spell, most significant bit first.
+pub fn bits_to_int(bits: List(Bool)) -> Int {
+  list.fold(bits, 0, fn(acc, bit) { acc * 2 + util.bool_to_int(bit) })
 }

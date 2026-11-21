@@ -11,9 +11,11 @@
 //// and render through [`to_string_with`](#to_string_with) or
 //// [`to_string_compact_with`](#to_string_compact_with).
 
+import gleam/int
 import gleam/list
 import gleam/string
 import qrkit
+import qrkit/internal/util
 
 const default_quiet_zone = 4
 
@@ -38,11 +40,7 @@ pub fn default_options() -> AsciiOptions {
 /// to be scanned from a camera.
 pub fn with_margin(options: AsciiOptions, modules: Int) -> AsciiOptions {
   let AsciiOptions(_, inverse) = options
-  let clamped = case modules < 0 {
-    True -> 0
-    False -> modules
-  }
-  AsciiOptions(margin: clamped, inverse: inverse)
+  AsciiOptions(margin: int.max(modules, 0), inverse: inverse)
 }
 
 /// Toggle inverted rendering (dark cells render as spaces, light
@@ -86,7 +84,7 @@ pub fn to_string_with(qr: qrkit.QrCode, options: AsciiOptions) -> String {
 /// [`to_string_compact_with`](#to_string_compact_with) for a
 /// caller-controlled margin.
 pub fn to_string_compact(qr: qrkit.QrCode) -> String {
-  let padded = pad_rows(qrkit.rows(qr), default_quiet_zone)
+  let padded = util.pad_rows(qrkit.rows(qr), default_quiet_zone)
   compact_lines(padded, [])
   |> string.join(with: "\n")
 }
@@ -101,7 +99,7 @@ pub fn to_string_compact_with(
   options: AsciiOptions,
 ) -> String {
   let AsciiOptions(margin, _inverse) = options
-  let padded = pad_rows(qrkit.rows(qr), margin)
+  let padded = util.pad_rows(qrkit.rows(qr), margin)
   compact_lines(padded, [])
   |> string.join(with: "\n")
 }
@@ -112,30 +110,10 @@ fn render(
   light light: String,
   margin margin: Int,
 ) -> String {
-  let rows = pad_rows(qrkit.rows(qr), margin)
+  let rows = util.pad_rows(qrkit.rows(qr), margin)
   rows
   |> list.map(fn(row) { render_row(row, dark, light) })
   |> string.join(with: "\n")
-}
-
-fn pad_rows(rows: List(List(Bool)), margin: Int) -> List(List(Bool)) {
-  let width = case rows {
-    [first, ..] -> list.length(first)
-    [] -> 0
-  }
-  let padded_row = list.repeat(False, width + margin * 2)
-  let body =
-    rows
-    |> list.map(fn(row) {
-      list.append(
-        list.repeat(False, margin),
-        list.append(row, list.repeat(False, margin)),
-      )
-    })
-  list.append(
-    list.repeat(padded_row, margin),
-    list.append(body, list.repeat(padded_row, margin)),
-  )
 }
 
 fn render_row(row: List(Bool), dark: String, light: String) -> String {

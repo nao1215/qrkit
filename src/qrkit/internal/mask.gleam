@@ -4,13 +4,24 @@ import gleam/list
 import qrkit/internal/matrix
 import qrkit/internal/util
 
+/// Apply Standard QR data mask `mask` (0..7) to every module that is not
+/// reserved.
 pub fn apply(mask: Int, to target: matrix.Matrix) -> matrix.Matrix {
-  do_apply(mask, target, 0, 0)
+  apply_with(target, fn(row, col) { mask_at(mask, row, col) })
 }
 
-fn do_apply(
-  mask: Int,
+/// Flip every module that is not reserved and for which `flip(row, col)`
+/// holds. Micro QR and rMQR pass their own mask patterns.
+pub fn apply_with(
   target: matrix.Matrix,
+  flip: fn(Int, Int) -> Bool,
+) -> matrix.Matrix {
+  apply_loop(target, flip, 0, 0)
+}
+
+fn apply_loop(
+  target: matrix.Matrix,
+  flip: fn(Int, Int) -> Bool,
   row: Int,
   col: Int,
 ) -> matrix.Matrix {
@@ -18,14 +29,14 @@ fn do_apply(
     True -> target
     False ->
       case col >= matrix.width(target) {
-        True -> do_apply(mask, target, row + 1, 0)
+        True -> apply_loop(target, flip, row + 1, 0)
         False ->
           case matrix.is_reserved(target, row, col) {
-            True -> do_apply(mask, target, row, col + 1)
+            True -> apply_loop(target, flip, row, col + 1)
             False ->
-              do_apply(
-                mask,
-                matrix.xor(target, row, col, mask_at(mask, row, col)),
+              apply_loop(
+                matrix.xor(target, row, col, flip(row, col)),
+                flip,
                 row,
                 col + 1,
               )
@@ -106,10 +117,10 @@ fn do_penalty_n2(target: matrix.Matrix, row: Int, col: Int, acc: Int) -> Int {
         True -> do_penalty_n2(target, row + 1, 0, acc)
         False -> {
           let dark_total =
-            bool_to_int(matrix.get(target, row, col))
-            + bool_to_int(matrix.get(target, row, col + 1))
-            + bool_to_int(matrix.get(target, row + 1, col))
-            + bool_to_int(matrix.get(target, row + 1, col + 1))
+            util.bool_to_int(matrix.get(target, row, col))
+            + util.bool_to_int(matrix.get(target, row, col + 1))
+            + util.bool_to_int(matrix.get(target, row + 1, col))
+            + util.bool_to_int(matrix.get(target, row + 1, col + 1))
           let next_acc = case dark_total == 0 || dark_total == 4 {
             True -> acc + 1
             False -> acc
@@ -157,7 +168,7 @@ fn take_bits(values: List(Bool), count: Int, acc: Int) -> Int {
   case values, count {
     _, 0 -> acc
     [value, ..rest], _ ->
-      take_bits(rest, count - 1, acc * 2 + bool_to_int(value))
+      take_bits(rest, count - 1, acc * 2 + util.bool_to_int(value))
     [], _ -> acc
   }
 }
@@ -196,11 +207,4 @@ fn row_values(target: matrix.Matrix, row: Int) -> List(Bool) {
 fn column_values(target: matrix.Matrix, col: Int) -> List(Bool) {
   util.range(0, matrix.height(target) - 1)
   |> list.map(fn(row) { matrix.get(target, row, col) })
-}
-
-fn bool_to_int(value: Bool) -> Int {
-  case value {
-    True -> 1
-    False -> 0
-  }
 }
