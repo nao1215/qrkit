@@ -537,9 +537,9 @@ pub fn data_module_positions(version: Int) -> List(#(Int, Int)) {
 
 fn function_patterns(size: Int) -> matrix.Matrix {
   matrix.new(size, size)
-  |> draw_finder(size)
+  |> draw_finder
   |> draw_timing(size)
-  |> reserve_format_info(size)
+  |> reserve_format_info
 }
 
 /// The 15-bit format information of a symbol given as `module(row, col)`,
@@ -606,7 +606,7 @@ fn build_matrix(
   }
 }
 
-fn draw_finder(target: matrix.Matrix, _size: Int) -> matrix.Matrix {
+fn draw_finder(target: matrix.Matrix) -> matrix.Matrix {
   util.range(0, finder_size)
   |> list.fold(target, fn(acc, row) {
     util.range(0, finder_size)
@@ -641,7 +641,7 @@ fn draw_timing(target: matrix.Matrix, size: Int) -> matrix.Matrix {
   })
 }
 
-fn reserve_format_info(target: matrix.Matrix, _size: Int) -> matrix.Matrix {
+fn reserve_format_info(target: matrix.Matrix) -> matrix.Matrix {
   let horizontal =
     util.range(1, 8)
     |> list.fold(target, fn(acc, col) {

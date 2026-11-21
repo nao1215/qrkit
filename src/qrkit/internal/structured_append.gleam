@@ -61,8 +61,7 @@ fn find_split(
   case total > max_symbols {
     True -> Error(no_split_fits_error(data, max_version, ecc))
     False -> {
-      let chunks = split_string(data, total)
-      case encode_shards(chunks, data, total, max_version, ecc) {
+      case encode_shards(data, total, max_version, ecc) {
         Ok(encodes) -> Ok(encodes)
         Error(_) -> find_split(data, max_version, ecc, total + 1)
       }
@@ -95,8 +94,9 @@ fn no_split_fits_error(
   DataExceedsCapacity(payload_bits, bits_available)
 }
 
+/// Encode `data` as `total` symbols. A single symbol carries no Structured
+/// Append header.
 fn encode_shards(
-  chunks: List(String),
   data: String,
   total: Int,
   max_version: Int,
@@ -104,25 +104,22 @@ fn encode_shards(
 ) -> Result(List(standard.Encoded), EncodeError) {
   case total {
     1 ->
-      case chunks {
-        [chunk] ->
-          case
-            standard.encode_prefixed(
-              chunk,
-              ecc,
-              1,
-              max_version,
-              None,
-              Auto,
-              <<>>,
-            )
-          {
-            Ok(encoded) -> Ok([encoded])
-            Error(error) -> Error(error)
-          }
-        _ -> Error(EmptyInput)
+      case
+        standard.encode_prefixed(data, ecc, 1, max_version, None, Auto, <<>>)
+      {
+        Ok(encoded) -> Ok([encoded])
+        Error(error) -> Error(error)
       }
-    _ -> encode_multiple_shards(chunks, data, total, max_version, ecc, 0, [])
+    _ ->
+      encode_multiple_shards(
+        split_string(data, total),
+        data,
+        total,
+        max_version,
+        ecc,
+        0,
+        [],
+      )
   }
 }
 

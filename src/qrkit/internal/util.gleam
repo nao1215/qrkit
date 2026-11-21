@@ -10,13 +10,6 @@ pub fn range(from start: Int, to stop: Int) -> List(Int) {
   }
 }
 
-pub fn reverse_range(from start: Int, down_to stop: Int) -> List(Int) {
-  case start < stop {
-    True -> []
-    False -> [start, ..reverse_range(start - 1, stop)]
-  }
-}
-
 pub fn at(list: List(a), index: Int) -> Result(a, Nil) {
   case list, index {
     _, i if i < 0 -> Error(Nil)
@@ -49,8 +42,4 @@ pub fn characters(text: String) -> List(String) {
   text
   |> string.to_utf_codepoints
   |> list.map(fn(codepoint) { string.from_utf_codepoints([codepoint]) })
-}
-
-pub fn join(strings: List(String), separator: String) -> String {
-  string.join(strings, with: separator)
 }

@@ -149,20 +149,6 @@ pub fn alphanumeric_bits_length(length: Int) -> Int {
   }
 }
 
-pub fn numeric_increment_cost(mod3: Int) -> Int {
-  case mod3 {
-    0 -> 4
-    _ -> 3
-  }
-}
-
-pub fn alphanumeric_increment_cost(mod2: Int) -> Int {
-  case mod2 {
-    0 -> 6
-    _ -> 5
-  }
-}
-
 fn encode_numeric(data: String) -> BitArray {
   do_encode_numeric(util.characters(data), bitstream.new())
   |> bitstream.to_bit_array

@@ -21,13 +21,6 @@ pub fn append_bits(stream: BitStream, value: Int, size bits: Int) -> BitStream {
   BitStream([<<value:size(bits)>>, ..parts], length_bits + bits)
 }
 
-pub fn append_bit(stream: BitStream, value: Bool) -> BitStream {
-  case value {
-    True -> append_bits(stream, 1, size: 1)
-    False -> append_bits(stream, 0, size: 1)
-  }
-}
-
 pub fn append_byte(stream: BitStream, byte: Int) -> BitStream {
   append_bits(stream, byte, size: 8)
 }
@@ -35,12 +28,6 @@ pub fn append_byte(stream: BitStream, byte: Int) -> BitStream {
 pub fn append_bytes(stream: BitStream, bytes: BitArray) -> BitStream {
   let BitStream(parts, length_bits) = stream
   BitStream([bytes, ..parts], length_bits + bit_array.bit_size(bytes))
-}
-
-pub fn concat(streams: List(BitStream)) -> BitStream {
-  list.fold(streams, new(), fn(acc, stream) {
-    append_bytes(acc, to_bit_array(stream))
-  })
 }
 
 pub fn pad_to_byte_boundary(stream: BitStream) -> BitStream {

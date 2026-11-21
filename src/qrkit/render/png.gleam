@@ -84,12 +84,10 @@ pub fn with_background(options: PngOptions, draw: Bool) -> PngOptions {
 pub fn to_bit_array_with(qr: qrkit.QrCode, options: PngOptions) -> BitArray {
   let PngOptions(module_size, margin, dark_color, light_color, background) =
     options
-  let actual_scale = positive_or(module_size, default: 1)
-  let actual_margin = non_negative_or(margin, default: 0)
   let pixels =
     qrkit.rows(qr)
-    |> pad_rows(actual_margin)
-    |> scale_rows(actual_scale)
+    |> pad_rows(margin)
+    |> scale_rows(module_size)
   let width = pixels_width(pixels)
   let height = list.length(pixels)
   let image_data = scanlines(pixels, [])

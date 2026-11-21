@@ -115,11 +115,11 @@ pub fn from_rows(rows: List(List(Bool))) -> Result(Decoded, DecodeError) {
   case dimensions(trimmed) {
     Error(error) -> Error(error)
     Ok(#(width, height)) -> {
-      let candidates = case width == height {
+      let other_orientations = case width == height {
         True -> square_orientations(trimmed)
         False -> rectangular_orientations(trimmed)
       }
-      first_success(candidates, fn(candidate) {
+      first_success(trimmed, other_orientations, fn(candidate) {
         decode_grid(Grid(
           width_of(candidate),
           list.length(candidate),
@@ -197,6 +197,8 @@ fn transpose(rows: List(List(Bool))) -> List(List(Bool)) {
   list.transpose(rows)
 }
 
+/// The seven rotations and mirror images of a square grid, other than the
+/// grid itself.
 fn square_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   let rotate = fn(r) { transpose(r) |> list.map(list.reverse) }
   let r90 = rotate(rows)
@@ -204,7 +206,6 @@ fn square_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   let r270 = rotate(r180)
   let mirrored = transpose(rows)
   [
-    rows,
     r90,
     r180,
     r270,
@@ -215,46 +216,44 @@ fn square_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   ]
 }
 
-/// rMQR symbols are wider than they are tall, so a taller grid is a symbol
-/// turned on its side: it is transposed before the four flips are tried. The
-/// grid as given stays the first candidate, so an unreadable grid reports
-/// the error for the orientation the caller supplied.
+/// The orientations of a rectangular grid to try after the grid itself. rMQR
+/// symbols are wider than they are tall, so a taller grid is a symbol turned
+/// on its side: it is transposed before the four flips are tried.
 fn rectangular_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   let flip_vertical = list.reverse
   let flip_horizontal = fn(r) { list.map(r, list.reverse) }
   let flips = fn(wide) {
     [
-      wide,
       flip_horizontal(flip_vertical(wide)),
       flip_horizontal(wide),
       flip_vertical(wide),
     ]
   }
   case list.length(rows) > width_of(rows) {
-    True -> [rows, ..flips(transpose(rows))]
+    True -> {
+      let wide = transpose(rows)
+      [wide, ..flips(wide)]
+    }
     False -> flips(rows)
   }
 }
 
-/// Return the first success; otherwise the error of the first candidate,
-/// which is the orientation the caller supplied.
+/// Return the first success; otherwise the error of `first`, which is the
+/// orientation the caller supplied.
 fn first_success(
-  candidates: List(a),
+  first: a,
+  rest: List(a),
   attempt: fn(a) -> Result(b, DecodeError),
 ) -> Result(b, DecodeError) {
-  case candidates {
-    [] -> Error(UnreadableFormatInformation)
-    [first, ..rest] ->
-      case attempt(first) {
-        Ok(value) -> Ok(value)
-        Error(error) ->
-          list.fold_until(rest, Error(error), fn(acc, candidate) {
-            case attempt(candidate) {
-              Ok(value) -> list.Stop(Ok(value))
-              Error(_) -> list.Continue(acc)
-            }
-          })
-      }
+  case attempt(first) {
+    Ok(value) -> Ok(value)
+    Error(error) ->
+      list.fold_until(rest, Error(error), fn(acc, candidate) {
+        case attempt(candidate) {
+          Ok(value) -> list.Stop(Ok(value))
+          Error(_) -> list.Continue(acc)
+        }
+      })
   }
 }
 

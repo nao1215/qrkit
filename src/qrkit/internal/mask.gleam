@@ -34,28 +34,6 @@ fn do_apply(
   }
 }
 
-pub fn best_mask(target: matrix.Matrix) -> Int {
-  do_best_mask(target, 0, 0, 0)
-}
-
-fn do_best_mask(
-  target: matrix.Matrix,
-  mask: Int,
-  best_mask: Int,
-  best_penalty: Int,
-) -> Int {
-  case mask > 7 {
-    True -> best_mask
-    False -> {
-      let penalty = penalty_total(apply(mask, to: target))
-      case mask == 0 || penalty < best_penalty {
-        True -> do_best_mask(target, mask + 1, mask, penalty)
-        False -> do_best_mask(target, mask + 1, best_mask, best_penalty)
-      }
-    }
-  }
-}
-
 pub fn penalty_total(target: matrix.Matrix) -> Int {
   penalty_n1(target)
   + penalty_n2(target)

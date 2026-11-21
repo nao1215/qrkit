@@ -236,14 +236,6 @@ fn segments_bits(segments: List(segment.Segment), index: Int) -> Int {
   })
 }
 
-/// Return `#(width, height)` for a 0-based rMQR version index.
-pub fn dimensions(index: Int) -> Result(#(Int, Int), EncodeError) {
-  case index >= 0 && index < total_versions {
-    True -> Ok(#(lookup_int(widths, index), lookup_int(heights, index)))
-    False -> Error(InvalidVersion(index + 1))
-  }
-}
-
 fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   case ecc {
     Medium | High -> Ok(Nil)
@@ -659,8 +651,7 @@ fn draw_alignment_patterns(
     True ->
       case alignment_row_for_width(h_size) {
         Error(_) -> target
-        Ok(h_version) ->
-          do_draw_alignment_columns(target, h_size, v_size, h_version, 0)
+        Ok(h_version) -> do_draw_alignment_columns(target, v_size, h_version, 0)
       }
   }
 }
@@ -678,7 +669,6 @@ fn alignment_row_for_width(h_size: Int) -> Result(Int, Nil) {
 
 fn do_draw_alignment_columns(
   target: matrix.Matrix,
-  h_size: Int,
   v_size: Int,
   h_version: Int,
   index: Int,
@@ -691,8 +681,7 @@ fn do_draw_alignment_columns(
         0 -> target
         _ ->
           do_draw_alignment_columns(
-            draw_alignment_column(target, column, h_size, v_size),
-            h_size,
+            draw_alignment_column(target, column, v_size),
             v_size,
             h_version,
             index + 1,
@@ -705,7 +694,6 @@ fn do_draw_alignment_columns(
 fn draw_alignment_column(
   target: matrix.Matrix,
   column: Int,
-  _h_size: Int,
   v_size: Int,
 ) -> matrix.Matrix {
   let with_line =

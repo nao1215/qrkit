@@ -2,7 +2,6 @@
 
 import gleam/list
 import gleam/set
-import qrkit/internal/util
 
 pub opaque type Matrix {
   Matrix(width: Int, height: Int, dark: set.Set(Int), reserved: set.Set(Int))
@@ -100,12 +99,4 @@ fn build_row(
     True -> list.reverse(acc)
     False -> build_row(matrix, row, col + 1, [get(matrix, row, col), ..acc])
   }
-}
-
-pub fn positions(matrix: Matrix) -> List(#(Int, Int)) {
-  util.range(0, height(matrix) - 1)
-  |> list.flat_map(fn(row) {
-    util.range(0, width(matrix) - 1)
-    |> list.map(fn(col) { #(row, col) })
-  })
 }

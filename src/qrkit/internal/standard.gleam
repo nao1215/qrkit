@@ -331,7 +331,7 @@ fn build_matrix(
 fn function_patterns(chosen_version: Int, size: Int) -> matrix.Matrix {
   let base =
     matrix.new(size, size)
-    |> setup_finder_patterns(chosen_version)
+    |> setup_finder_patterns
     |> setup_timing_pattern
     |> setup_alignment_patterns(chosen_version)
     |> setup_format_info(types.Medium, 0)
@@ -433,10 +433,7 @@ fn choose_best_mask_loop(
   }
 }
 
-fn setup_finder_patterns(
-  target: matrix.Matrix,
-  _chosen_version: Int,
-) -> matrix.Matrix {
+fn setup_finder_patterns(target: matrix.Matrix) -> matrix.Matrix {
   let size = matrix.width(target)
   let positions = [#(0, 0), #(0, size - 7), #(size - 7, 0)]
   list.fold(positions, target, fn(acc, position) {
