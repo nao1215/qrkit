@@ -179,7 +179,7 @@ fn trim_quiet_zone(rows: List(List(Bool))) -> List(List(Bool)) {
     |> list.reverse
   case trimmed_rows {
     [] -> []
-    _ -> transpose(transpose(trimmed_rows) |> trim_rows(light))
+    _ -> list.transpose(list.transpose(trimmed_rows) |> trim_rows(light))
   }
 }
 
@@ -194,18 +194,14 @@ fn trim_rows(
   |> list.reverse
 }
 
-fn transpose(rows: List(List(Bool))) -> List(List(Bool)) {
-  list.transpose(rows)
-}
-
 /// The seven rotations and mirror images of a square grid, other than the
 /// grid itself.
 fn square_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
-  let rotate = fn(r) { transpose(r) |> list.map(list.reverse) }
+  let rotate = fn(r) { list.transpose(r) |> list.map(list.reverse) }
   let r90 = rotate(rows)
   let r180 = rotate(r90)
   let r270 = rotate(r180)
-  let mirrored = transpose(rows)
+  let mirrored = list.transpose(rows)
   [
     r90,
     r180,
@@ -232,7 +228,7 @@ fn rectangular_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   }
   case list.length(rows) > width_of(rows) {
     True -> {
-      let wide = transpose(rows)
+      let wide = list.transpose(rows)
       [wide, ..flips(wide)]
     }
     False -> flips(rows)

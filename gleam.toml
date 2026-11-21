@@ -10,7 +10,7 @@ links = [
 gleam = ">= 1.14.0"
 
 [dependencies]
-gleam_stdlib = ">= 0.66.0 and < 2.0.0"
+gleam_stdlib = ">= 0.69.0 and < 2.0.0"
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
@@ -21,7 +21,7 @@ birdie = ">= 2.0.0 and < 3.0.0"
 
 [tools.glinter]
 warnings_as_errors = true
-include = ["src/", "test/"]
+include = ["src/", "test/", "dev/"]
 
 [tools.glinter.rules]
 assert_ok_pattern = "error"
@@ -51,11 +51,18 @@ trailing_underscore = "error"
 unnecessary_string_concatenation = "error"
 unnecessary_variable = "error"
 unqualified_import = "error"
-unused_exports = "off"
+unused_exports = "error"
 unwrap_used = "error"
 
 [tools.glinter.ignore]
 "test/**/*.gleam" = [
+  "assert_ok_pattern",
+  "label_possible",
+  "missing_type_annotation",
+  "short_variable_name",
+  "unused_exports",
+]
+"dev/**/*.gleam" = [
   "assert_ok_pattern",
   "label_possible",
   "missing_type_annotation",

@@ -4,13 +4,6 @@ import gleam/int
 import gleam/list
 import gleam/string
 
-pub fn range(from start: Int, to stop: Int) -> List(Int) {
-  case start > stop {
-    True -> []
-    False -> [start, ..range(start + 1, stop)]
-  }
-}
-
 pub fn at(list: List(a), index: Int) -> Result(a, Nil) {
   case list, index {
     _, i if i < 0 -> Error(Nil)
@@ -33,10 +26,6 @@ pub fn replace_at(list: List(a), index: Int, with replacement: a) -> List(a) {
     [_, ..rest], 0 -> [replacement, ..rest]
     [first, ..rest], i -> [first, ..replace_at(rest, i - 1, with: replacement)]
   }
-}
-
-pub fn repeat(value: a, times count: Int) -> List(a) {
-  list.repeat(value, count)
 }
 
 pub fn characters(text: String) -> List(String) {

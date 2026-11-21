@@ -12,10 +12,10 @@ deps:
   gleam deps download
 
 format:
-  gleam format src/ test/
+  gleam format src/ test/ dev/
 
 format-check:
-  gleam format --check src/ test/
+  gleam format --check src/ test/ dev/
 
 lint:
   gleam run -m glinter
@@ -49,14 +49,14 @@ docs:
   gleam docs build
 
 check: deps clean
-  gleam format --check src/ test/
+  gleam format --check src/ test/ dev/
   gleam check
   gleam run -m glinter
   gleam build --warnings-as-errors
   gleam test
 
 ci: deps clean
-  gleam format --check src/ test/
+  gleam format --check src/ test/ dev/
   gleam check
   gleam run -m glinter
   gleam build --warnings-as-errors --target erlang
@@ -65,7 +65,7 @@ ci: deps clean
   gleam test --target javascript
 
 all: deps clean
-  gleam format --check src/ test/
+  gleam format --check src/ test/ dev/
   gleam check
   gleam run -m glinter
   gleam build --warnings-as-errors --target erlang

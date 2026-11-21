@@ -18,19 +18,18 @@ import qrkit/types.{type ErrorCorrection, type ModePreference}
 
 /// Encode `text` as a Standard QR code.
 ///
-/// `min_version` is `Some(N)` when the caller explicitly pinned the version
-/// via `qrkit.with_exact_version(N)`; in that case the encoder uses N as a
-/// strict version (a capacity overflow at N returns `Error` instead of
-/// promoting to a larger version). When `min_version` is `None`, the
-/// encoder picks the smallest version in 1..40 that fits the payload.
+/// `exact_version` is `Some(N)` when the caller pinned the version with
+/// `qrkit.with_exact_version(N)`: the symbol is version N, and a payload that
+/// does not fit returns an `Error`. When it is `None`, the encoder picks the
+/// smallest version in 1..40 that fits the payload.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,
-  min_version: Option(Int),
+  exact_version: Option(Int),
   eci: Option(Int),
   preference: ModePreference,
 ) -> Result(matrix.Encoded, EncodeError) {
-  let #(lo, hi) = case min_version {
+  let #(lo, hi) = case exact_version {
     None -> #(1, 40)
     Some(n) -> #(n, n)
   }
@@ -323,8 +322,7 @@ pub fn read_format_copies(
   module: fn(Int, Int) -> Bool,
   size: Int,
 ) -> #(Int, Int) {
-  util.range(0, 14)
-  |> list.fold(#(0, 0), fn(acc, index) {
+  int.range(from: 0, to: 15, with: #(0, 0), run: fn(acc, index) {
     let #(vertical_row, horizontal_col) = format_info_position(index, size)
     let weight = int.bitwise_shift_left(1, index)
     #(
@@ -387,10 +385,8 @@ fn draw_finder_pattern(
   top: Int,
   left: Int,
 ) -> matrix.Matrix {
-  util.range(-1, 7)
-  |> list.fold(target, fn(acc, row_offset) {
-    util.range(-1, 7)
-    |> list.fold(acc, fn(acc2, col_offset) {
+  int.range(from: -1, to: 8, with: target, run: fn(acc, row_offset) {
+    int.range(from: -1, to: 8, with: acc, run: fn(acc2, col_offset) {
       let row = top + row_offset
       let col = left + col_offset
       case inside(acc2, row, col) {
@@ -421,13 +417,17 @@ fn draw_finder_pattern(
 }
 
 fn setup_timing_pattern(target: matrix.Matrix) -> matrix.Matrix {
-  util.range(8, matrix.width(target) - 9)
-  |> list.fold(target, fn(acc, index) {
-    let dark = index % 2 == 0
-    acc
-    |> matrix.set(index, 6, dark, reserved: True)
-    |> matrix.set(6, index, dark, reserved: True)
-  })
+  int.range(
+    from: 8,
+    to: matrix.width(target) - 8,
+    with: target,
+    run: fn(acc, index) {
+      let dark = index % 2 == 0
+      acc
+      |> matrix.set(index, 6, dark, reserved: True)
+      |> matrix.set(6, index, dark, reserved: True)
+    },
+  )
 }
 
 fn setup_alignment_patterns(
@@ -446,10 +446,8 @@ fn draw_alignment_pattern(
   row: Int,
   col: Int,
 ) -> matrix.Matrix {
-  util.range(-2, 2)
-  |> list.fold(target, fn(acc, row_offset) {
-    util.range(-2, 2)
-    |> list.fold(acc, fn(acc2, col_offset) {
+  int.range(from: -2, to: 3, with: target, run: fn(acc, row_offset) {
+    int.range(from: -2, to: 3, with: acc, run: fn(acc2, col_offset) {
       let dark =
         row_offset == -2
         || row_offset == 2
@@ -466,8 +464,7 @@ fn setup_version_info(
   chosen_version: Int,
 ) -> matrix.Matrix {
   let bits = format_info.version_bits(chosen_version)
-  util.range(0, 17)
-  |> list.fold(target, fn(acc, index) {
+  int.range(from: 0, to: 18, with: target, run: fn(acc, index) {
     let row = index / 3
     let col = index % 3 + matrix.width(acc) - 11
     let dark = util.bit_at(bits, index)
@@ -485,8 +482,7 @@ fn setup_format_info(
   let size = matrix.width(target)
   let bits = format_info.format_bits(ecc, current_mask)
   let with_info =
-    util.range(0, 14)
-    |> list.fold(target, fn(acc, index) {
+    int.range(from: 0, to: 15, with: target, run: fn(acc, index) {
       let dark = util.bit_at(bits, index)
       let #(vertical_row, horizontal_col) = format_info_position(index, size)
       acc

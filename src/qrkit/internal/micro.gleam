@@ -20,7 +20,7 @@ import qrkit/internal/reed_solomon
 import qrkit/internal/segment
 import qrkit/internal/util
 import qrkit/types.{
-  type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte,
+  type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte, High,
   Kanji, Low, Medium, Numeric, Quartile,
 }
 
@@ -55,23 +55,23 @@ const symbols: List(#(Int, ErrorCorrection, Int, Int)) = [
 
 /// Encode `text` into a Micro QR code.
 ///
-/// `requested_version` is `Some(N)` when the caller explicitly pinned the
-/// version via `qrkit.with_exact_version(N)`, in which case the encoder uses N as a strict
-/// version (any mode/ECC/capacity mismatch surfaces as an `Error`). When
-/// `requested_version` is `None`, the encoder picks the smallest version that
-/// fits the payload.
+/// `exact_version` is `Some(N)` when the caller pinned the version with
+/// `qrkit.with_exact_version(N)`: the symbol is MN, and a mode, error
+/// correction level or payload that MN cannot carry returns an `Error`. When
+/// it is `None`, the encoder picks the smallest version that fits the
+/// payload.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Option(Int),
+  exact_version: Option(Int),
   preference: ModePreference,
 ) -> Result(matrix.Encoded, EncodeError) {
-  use _ <- result.try(validate_requested(requested_version))
+  use _ <- result.try(validate_exact_version(exact_version))
   use _ <- result.try(validate_ecc(ecc))
   use #(chosen_version, segments) <- result.try(resolve_version(
     text,
     ecc,
-    requested_version,
+    exact_version,
     preference,
   ))
   use codewords <- result.try(create_codewords(segments, ecc, chosen_version))
@@ -82,10 +82,10 @@ pub fn encode(
   }
 }
 
-fn validate_requested(
-  requested_version: Option(Int),
+fn validate_exact_version(
+  exact_version: Option(Int),
 ) -> Result(Nil, EncodeError) {
-  case requested_version {
+  case exact_version {
     None -> Ok(Nil)
     Some(value) -> validate_version(value)
   }
@@ -94,19 +94,18 @@ fn validate_requested(
 /// Resolve the version the encoder should use, with the segments measured
 /// for it (the mode indicator and character counts widen with the version).
 ///
-/// - When `requested_version` is `None`, walk versions from `min_version`
-///   upward and pick the first that fits the payload (the historical
-///   "smallest fit" behaviour).
-/// - When `requested_version` is `Some(N)`, use N as a strict floor: if N
-///   cannot encode the characters, support the ECC level, or hold the
-///   payload, return a typed `Error` instead of silently promoting to N+1.
+/// - When `exact_version` is `None`, walk versions from `min_version` upward
+///   and pick the first that fits the payload.
+/// - When `exact_version` is `Some(N)`, use exactly N: if N cannot encode the
+///   characters, support the ECC level, or hold the payload, return the
+///   `Error` that explains why.
 fn resolve_version(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Option(Int),
+  exact_version: Option(Int),
   preference: ModePreference,
 ) -> Result(#(Int, List(segment.Segment)), EncodeError) {
-  case requested_version {
+  case exact_version {
     None -> do_find_version(text, ecc, preference, min_version)
     Some(n) -> check_version(text, ecc, preference, n)
   }
@@ -148,7 +147,7 @@ fn segments_at(
     False ->
       Error(IncompatibleOptions(
         "Micro QR M"
-        <> int_to_str(version)
+        <> int.to_string(version)
         <> " does not support the "
         <> mode_name(single_mode)
         <> " mode",
@@ -237,7 +236,7 @@ fn symbol(
   })
   |> result.replace_error(IncompatibleOptions(
     "Micro QR M"
-    <> int_to_str(version)
+    <> int.to_string(version)
     <> " does not support the requested error correction level",
   ))
 }
@@ -252,7 +251,7 @@ fn validate_version(version: Int) -> Result(Nil, EncodeError) {
 fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   case ecc {
     Low | Medium | Quartile -> Ok(Nil)
-    _ ->
+    High ->
       Error(IncompatibleOptions(
         "Micro QR does not support the High error correction level",
       ))
@@ -278,8 +277,7 @@ fn do_find_version(
 /// Build a `DataExceedsCapacity` error for the bailout case where no Micro QR
 /// version in `min_version..=max_version` accepts the payload at `ecc`. The
 /// fields point at the M4 ceiling (every Micro QR mode is supported at M4) so
-/// the caller can see how far over the Micro-QR ceiling the input is — see
-/// #22 for why `(0, 0)` was useless.
+/// the caller can see how far over the Micro-QR ceiling the input is.
 fn no_version_fits_error(
   text: String,
   ecc: ErrorCorrection,
@@ -339,7 +337,7 @@ pub fn char_count_bits_for_mode(
     4, Kanji -> Ok(4)
     _, _ ->
       Error(IncompatibleOptions(
-        "Mode is not supported by Micro QR M" <> int_to_str(version),
+        "Mode is not supported by Micro QR M" <> int.to_string(version),
       ))
   }
 }
@@ -397,8 +395,8 @@ fn pad_to_capacity(
     // The final data codeword of M1, M3-L and M3-M holds only 4 bits, and
     // ISO/IEC 18004 7.4.10 pads it with 0000: alternate pad codewords fill
     // the full codewords, then the half codeword stays zero. A full 0xEC
-    // there would leave 1100 in the error correction input that the symbol
-    // never carries, so every such symbol started with one codeword error.
+    // there would put 1100 into the error correction input that the symbol
+    // never carries, and a reader would see one codeword error.
     True ->
       pad_alternating(aligned, data_bytes_count - 1, 0)
       |> pad_zero(data_bytes_count)
@@ -492,14 +490,12 @@ fn function_patterns(size: Int) -> matrix.Matrix {
 /// in the bit order `place_format_info` writes.
 pub fn read_format(module: fn(Int, Int) -> Bool) -> Int {
   let horizontal =
-    util.range(0, 7)
-    |> list.fold(0, fn(acc, index) {
+    int.range(from: 0, to: 8, with: 0, run: fn(acc, index) {
       acc
       + util.bool_to_int(module(8, index + 1))
       * int.bitwise_shift_left(1, 14 - index)
     })
-  util.range(0, 6)
-  |> list.fold(horizontal, fn(acc, index) {
+  int.range(from: 0, to: 7, with: horizontal, run: fn(acc, index) {
     acc
     + util.bool_to_int(module(7 - index, 8))
     * int.bitwise_shift_left(1, 6 - index)
@@ -541,10 +537,10 @@ fn build_matrix(
 }
 
 fn draw_finder(target: matrix.Matrix) -> matrix.Matrix {
-  util.range(0, finder_size)
-  |> list.fold(target, fn(acc, row) {
-    util.range(0, finder_size)
-    |> list.fold(acc, fn(acc2, col) { draw_finder_module(acc2, row, col) })
+  int.range(from: 0, to: finder_size + 1, with: target, run: fn(acc, row) {
+    int.range(from: 0, to: finder_size + 1, with: acc, run: fn(acc2, col) {
+      draw_finder_module(acc2, row, col)
+    })
   })
 }
 
@@ -566,8 +562,7 @@ fn draw_finder_module(
 }
 
 fn draw_timing(target: matrix.Matrix, size: Int) -> matrix.Matrix {
-  util.range(finder_size + 1, size - 1)
-  |> list.fold(target, fn(acc, index) {
+  int.range(from: finder_size + 1, to: size, with: target, run: fn(acc, index) {
     let dark = index % 2 == 0
     acc
     |> matrix.set(0, index, dark, reserved: True)
@@ -577,12 +572,10 @@ fn draw_timing(target: matrix.Matrix, size: Int) -> matrix.Matrix {
 
 fn reserve_format_info(target: matrix.Matrix) -> matrix.Matrix {
   let horizontal =
-    util.range(1, 8)
-    |> list.fold(target, fn(acc, col) {
+    int.range(from: 1, to: 9, with: target, run: fn(acc, col) {
       matrix.set(acc, 8, col, False, reserved: True)
     })
-  util.range(1, 7)
-  |> list.fold(horizontal, fn(acc, row) {
+  int.range(from: 1, to: 8, with: horizontal, run: fn(acc, row) {
     matrix.set(acc, row, 8, False, reserved: True)
   })
 }
@@ -743,8 +736,7 @@ fn place_format_info(
 }
 
 fn place_horizontal_format(target: matrix.Matrix, bits: Int) -> matrix.Matrix {
-  util.range(0, 7)
-  |> list.fold(target, fn(acc, index) {
+  int.range(from: 0, to: 8, with: target, run: fn(acc, index) {
     let col = index + 1
     let dark = util.bit_at(bits, 14 - index)
     matrix.set(acc, 8, col, dark, reserved: True)
@@ -752,8 +744,7 @@ fn place_horizontal_format(target: matrix.Matrix, bits: Int) -> matrix.Matrix {
 }
 
 fn place_vertical_format(target: matrix.Matrix, bits: Int) -> matrix.Matrix {
-  util.range(0, 6)
-  |> list.fold(target, fn(acc, index) {
+  int.range(from: 0, to: 7, with: target, run: fn(acc, index) {
     let row = 7 - index
     let dark = util.bit_at(bits, 6 - index)
     matrix.set(acc, row, 8, dark, reserved: True)
@@ -767,15 +758,5 @@ fn format_bits(version: Int, ecc: ErrorCorrection, mask: Int) -> Int {
       util.at_or(format_info_table, index, default: format_xor_mask)
     }
     Error(_) -> format_xor_mask
-  }
-}
-
-fn int_to_str(value: Int) -> String {
-  case value {
-    1 -> "1"
-    2 -> "2"
-    3 -> "3"
-    4 -> "4"
-    _ -> "?"
   }
 }

@@ -1,5 +1,6 @@
 //// Standard QR data masks and penalty scoring.
 
+import gleam/int
 import gleam/list
 import qrkit/internal/matrix
 import qrkit/internal/util
@@ -133,13 +134,11 @@ fn do_penalty_n2(target: matrix.Matrix, row: Int, col: Int, acc: Int) -> Int {
 
 fn penalty_n3(target: matrix.Matrix) -> Int {
   let rows =
-    util.range(0, matrix.height(target) - 1)
-    |> list.fold(0, fn(acc, row) {
+    int.range(from: 0, to: matrix.height(target), with: 0, run: fn(acc, row) {
       acc + finder_like_penalty(row_values(target, row))
     })
   let columns =
-    util.range(0, matrix.width(target) - 1)
-    |> list.fold(0, fn(acc, col) {
+    int.range(from: 0, to: matrix.width(target), with: 0, run: fn(acc, col) {
       acc + finder_like_penalty(column_values(target, col))
     })
   { rows + columns } * 40
@@ -200,11 +199,16 @@ pub fn mask_at(mask: Int, row: Int, col: Int) -> Bool {
 }
 
 fn row_values(target: matrix.Matrix, row: Int) -> List(Bool) {
-  util.range(0, matrix.width(target) - 1)
-  |> list.map(fn(col) { matrix.get(target, row, col) })
+  int.range(from: matrix.width(target) - 1, to: -1, with: [], run: fn(acc, col) {
+    [matrix.get(target, row, col), ..acc]
+  })
 }
 
 fn column_values(target: matrix.Matrix, col: Int) -> List(Bool) {
-  util.range(0, matrix.height(target) - 1)
-  |> list.map(fn(row) { matrix.get(target, row, col) })
+  int.range(
+    from: matrix.height(target) - 1,
+    to: -1,
+    with: [],
+    run: fn(acc, row) { [matrix.get(target, row, col), ..acc] },
+  )
 }

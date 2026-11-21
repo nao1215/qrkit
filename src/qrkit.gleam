@@ -51,7 +51,7 @@ pub opaque type Builder {
   Builder(
     data: String,
     ecc: ErrorCorrection,
-    min_version: Option(Int),
+    exact_version: Option(Int),
     eci: Option(Int),
     symbol: Symbol,
     preference: ModePreference,
@@ -88,8 +88,9 @@ pub fn encode(data: String) -> Result(QrCode, EncodeError) {
 
 /// Set the desired error correction level.
 pub fn with_ecc(builder: Builder, ecc: ErrorCorrection) -> Builder {
-  let Builder(data, _, min_version, eci, symbol, preference, priority) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference, priority)
+  let Builder(data, _, exact_version, eci, symbol, preference, priority) =
+    builder
+  Builder(data, ecc, exact_version, eci, symbol, preference, priority)
 }
 
 /// Pin the symbol version exactly.
@@ -114,11 +115,12 @@ pub fn with_exact_version(builder: Builder, version: Int) -> Builder {
 /// 0..999999; invalid values surface as `Error(InvalidEciDesignator(..))`
 /// during `build`.
 pub fn with_eci(builder: Builder, designator: Int) -> Builder {
-  let Builder(data, ecc, min_version, _, symbol, preference, priority) = builder
+  let Builder(data, ecc, exact_version, _, symbol, preference, priority) =
+    builder
   Builder(
     data,
     ecc,
-    min_version,
+    exact_version,
     Some(designator),
     symbol,
     preference,
@@ -128,8 +130,8 @@ pub fn with_eci(builder: Builder, designator: Int) -> Builder {
 
 /// Select the symbol family.
 pub fn with_symbol(builder: Builder, symbol: Symbol) -> Builder {
-  let Builder(data, ecc, min_version, eci, _, preference, priority) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference, priority)
+  let Builder(data, ecc, exact_version, eci, _, preference, priority) = builder
+  Builder(data, ecc, exact_version, eci, symbol, preference, priority)
 }
 
 /// Change the mode optimisation strategy.
@@ -137,8 +139,8 @@ pub fn with_mode_preference(
   builder: Builder,
   preference: ModePreference,
 ) -> Builder {
-  let Builder(data, ecc, min_version, eci, symbol, _, priority) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference, priority)
+  let Builder(data, ecc, exact_version, eci, symbol, _, priority) = builder
+  Builder(data, ecc, exact_version, eci, symbol, preference, priority)
 }
 
 /// Choose how `build` picks the rMQR size when no exact version is set:
@@ -149,29 +151,29 @@ pub fn with_rectangular_priority(
   builder: Builder,
   priority: RectangularPriority,
 ) -> Builder {
-  let Builder(data, ecc, min_version, eci, symbol, preference, _) = builder
-  Builder(data, ecc, min_version, eci, symbol, preference, Some(priority))
+  let Builder(data, ecc, exact_version, eci, symbol, preference, _) = builder
+  Builder(data, ecc, exact_version, eci, symbol, preference, Some(priority))
 }
 
 /// Build a QR code from the accumulated builder configuration.
 pub fn build(builder: Builder) -> Result(QrCode, EncodeError) {
-  let Builder(data, ecc, min_version, eci, symbol, preference, priority) =
+  let Builder(data, ecc, exact_version, eci, symbol, preference, priority) =
     builder
   case data == "" {
     True -> Error(error.EmptyInput)
     False ->
-      case validate_builder_options(min_version, eci, symbol, priority) {
+      case validate_builder_options(exact_version, eci, symbol, priority) {
         Error(error) -> Error(error)
         Ok(Nil) ->
           case symbol {
             types.Standard ->
-              standard.encode(data, ecc, min_version, eci, preference)
-            types.Micro -> micro.encode(data, ecc, min_version, preference)
+              standard.encode(data, ecc, exact_version, eci, preference)
+            types.Micro -> micro.encode(data, ecc, exact_version, preference)
             types.Rectangular ->
               rmqr.encode(
                 data,
                 ecc,
-                min_version,
+                exact_version,
                 preference,
                 option.unwrap(priority, types.SmallestArea),
               )
@@ -191,12 +193,12 @@ fn from_encoded(
 }
 
 fn validate_builder_options(
-  min_version: Option(Int),
+  exact_version: Option(Int),
   eci: Option(Int),
   symbol: Symbol,
   priority: Option(RectangularPriority),
 ) -> Result(Nil, EncodeError) {
-  case validate_min_version(min_version, symbol) {
+  case validate_exact_version(exact_version, symbol) {
     Error(error) -> Error(error)
     Ok(Nil) ->
       case validate_eci(eci, symbol) {
@@ -213,11 +215,11 @@ fn validate_builder_options(
   }
 }
 
-fn validate_min_version(
-  min_version: Option(Int),
+fn validate_exact_version(
+  exact_version: Option(Int),
   symbol: Symbol,
 ) -> Result(Nil, EncodeError) {
-  case min_version {
+  case exact_version {
     None -> Ok(Nil)
     Some(value) -> {
       let upper = case symbol {

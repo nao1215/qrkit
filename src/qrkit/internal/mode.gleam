@@ -4,6 +4,7 @@ import gleam/bit_array
 import gleam/int
 import gleam/list
 import gleam/order
+import gleam/result
 import gleam/string
 import qrkit/error.{type EncodeError, UnsupportedCharacter}
 import qrkit/internal/bitstream
@@ -58,7 +59,7 @@ pub fn char_count_bits(mode: Mode, version: Int) -> Int {
 pub fn character_count(data: String, mode: Mode) -> Int {
   case mode {
     Byte -> utf8_byte_length(data)
-    _ -> list.length(util.characters(data))
+    Numeric | Alphanumeric | Kanji -> list.length(util.characters(data))
   }
 }
 
@@ -83,11 +84,11 @@ pub fn is_numeric_char(char: String) -> Bool {
 }
 
 pub fn is_alphanumeric_char(char: String) -> Bool {
-  char |> alphanumeric_value |> is_ok
+  char |> alphanumeric_value |> result.is_ok
 }
 
 pub fn is_kanji_char(char: String) -> Bool {
-  char |> to_sjis |> is_ok
+  char |> to_sjis |> result.is_ok
 }
 
 /// The narrowest mode that can encode `char` on its own.
@@ -277,13 +278,6 @@ fn must_parse(text: String) -> Int {
   case int.parse(text) {
     Ok(value) -> value
     Error(_) -> 0
-  }
-}
-
-fn is_ok(result: Result(a, b)) -> Bool {
-  case result {
-    Ok(_) -> True
-    Error(_) -> False
   }
 }
 

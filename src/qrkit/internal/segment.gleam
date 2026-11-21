@@ -230,16 +230,9 @@ fn trace_back(
       let previous =
         list.zip(modes, froms)
         |> list.key_find(current)
-        |> result_or(current)
+        |> result.unwrap(current)
       trace_back(rest, previous, [previous, ..acc])
     }
-  }
-}
-
-fn result_or(result: Result(a, Nil), default: a) -> a {
-  case result {
-    Ok(value) -> value
-    Error(Nil) -> default
   }
 }
 

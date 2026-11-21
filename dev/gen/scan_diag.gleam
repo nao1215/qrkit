@@ -5,7 +5,6 @@ import gleam/list
 import gleam/string
 import qrkit
 import qrkit/content
-import qrkit/internal/util
 import qrkit/render/png
 import qrkit/types
 import simplifile
@@ -71,7 +70,7 @@ pub fn main() -> Nil {
   })
 
   // Forced versions 1-40
-  list.each(util.range(1, 40), fn(v) {
+  int.range(from: 1, to: 41, with: Nil, run: fn(_, v) {
     let label = "v_" <> string.pad_start(int.to_string(v), to: 2, with: "0")
     try_save(
       label <> ".png",

@@ -20,9 +20,9 @@ fn do_generator_polynomial(degree: Int, polynomial: List(Int)) -> List(Int) {
 /// Encode `data` and return the error-correction codewords.
 pub fn encode(data: List(Int), degree: Int) -> List(Int) {
   let generator = generator_polynomial(degree)
-  let padded = list.append(data, util.repeat(0, degree))
+  let padded = list.append(data, list.repeat(0, degree))
   let remainder = poly_mod(padded, generator)
-  let padding = util.repeat(0, degree - list.length(remainder))
+  let padding = list.repeat(0, degree - list.length(remainder))
   list.append(padding, remainder)
 }
 
@@ -93,15 +93,9 @@ fn split_into_blocks(
   }
 }
 
+/// Read `blocks` column by column, skipping blocks that are exhausted.
 fn interleave_lists(blocks: List(List(Int))) -> List(Int) {
-  let width =
-    list.fold(blocks, 0, fn(widest, block) {
-      int.max(widest, list.length(block))
-    })
-  util.range(0, width - 1)
-  |> list.flat_map(fn(index) {
-    list.filter_map(blocks, fn(block) { util.at(block, index) })
-  })
+  list.transpose(blocks) |> list.flatten
 }
 
 /// Undo `encode_interleaved`: split the codewords read from a symbol into its
@@ -132,15 +126,16 @@ pub fn deinterleave(
 fn distribute(codewords: List(Int), sizes: List(Int)) -> List(List(Int)) {
   let widest = list.fold(sizes, 0, int.max)
   let owners =
-    util.range(0, widest - 1)
-    |> list.flat_map(fn(column) {
-      list.index_map(sizes, fn(size, block) { #(block, column < size) })
-      |> list.filter_map(fn(slot) {
-        case slot.1 {
-          True -> Ok(slot.0)
-          False -> Error(Nil)
-        }
-      })
+    int.range(from: widest - 1, to: -1, with: [], run: fn(acc, column) {
+      let owners_in_column =
+        list.index_map(sizes, fn(size, block) { #(block, column < size) })
+        |> list.filter_map(fn(slot) {
+          case slot.1 {
+            True -> Ok(slot.0)
+            False -> Error(Nil)
+          }
+        })
+      list.append(owners_in_column, acc)
     })
   let tagged = list.zip(owners, codewords)
   list.index_map(sizes, fn(_, block) {
@@ -170,9 +165,13 @@ pub fn correct(
       let errors = list.length(locator) - 1
       let length = list.length(block)
       let positions =
-        util.range(0, length - 1)
-        |> list.filter(fn(index) {
-          poly_eval_low(locator, gf_exp(255 - { length - 1 - index })) == 0
+        int.range(from: length - 1, to: -1, with: [], run: fn(acc, index) {
+          case
+            poly_eval_low(locator, gf_exp(255 - { length - 1 - index })) == 0
+          {
+            True -> [index, ..acc]
+            False -> acc
+          }
         })
       case errors * 2 > ec_count || list.length(positions) != errors {
         True -> Error(Nil)
@@ -209,12 +208,13 @@ pub fn correct(
 /// S_i = r(alpha^i) for i in 0 .. ec_count - 1, reading the block as a
 /// polynomial with its first codeword as the highest-degree coefficient.
 fn syndromes(block: List(Int), ec_count: Int) -> List(Int) {
-  util.range(0, ec_count - 1)
-  |> list.map(fn(power) {
+  int.range(from: ec_count - 1, to: -1, with: [], run: fn(acc, power) {
     let root = gf_exp(power)
-    list.fold(block, 0, fn(acc, codeword) {
-      int.bitwise_exclusive_or(gf_multiply(acc, root), codeword)
-    })
+    let syndrome =
+      list.fold(block, 0, fn(value, codeword) {
+        int.bitwise_exclusive_or(gf_multiply(value, root), codeword)
+      })
+    [syndrome, ..acc]
   })
 }
 
@@ -224,8 +224,7 @@ fn berlekamp_massey(syndromes: List(Int)) -> List(Int) {
     list.index_fold(syndromes, #([1], [1], 0, 1, 1), fn(state, _, n) {
       let #(current, previous, length, shift, last_discrepancy) = state
       let discrepancy =
-        util.range(0, length)
-        |> list.fold(0, fn(acc, i) {
+        int.range(from: 0, to: length + 1, with: 0, run: fn(acc, i) {
           int.bitwise_exclusive_or(
             acc,
             gf_multiply(
@@ -366,7 +365,7 @@ fn gf_multiply_loop(a: Int, b: Int, acc: Int) -> Int {
 
 fn poly_multiply(left: List(Int), right: List(Int)) -> List(Int) {
   let size = list.length(left) + list.length(right) - 1
-  do_poly_multiply(left, right, 0, util.repeat(0, size))
+  do_poly_multiply(left, right, 0, list.repeat(0, size))
 }
 
 fn do_poly_multiply(

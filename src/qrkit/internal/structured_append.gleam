@@ -79,7 +79,7 @@ const structured_append_header_bits: Int = 20
 /// capacity of 16 `max_version` symbols at `ecc`, minus the Structured Append
 /// header each shard must carry; `bits_needed` is the worst-case Byte-mode
 /// encoding of the payload (UTF-8 byte count × 8) since we don't know which
-/// mode each shard would have picked. See #22 for why `(0, 0)` was useless.
+/// mode each shard would have picked.
 fn no_split_fits_error(
   data: String,
   max_version: Int,

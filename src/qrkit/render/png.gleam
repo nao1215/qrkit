@@ -79,9 +79,8 @@ pub fn with_background(options: PngOptions, draw: Bool) -> PngOptions {
 /// Equivalent to [`to_bit_array`](#to_bit_array) when called with
 /// [`default_options`](#default_options) overridden only by
 /// [`with_module_size`](#with_module_size) and
-/// [`with_margin`](#with_margin); the colour and background knobs
-/// add the surface not previously reachable through the positional
-/// entry point.
+/// [`with_margin`](#with_margin); the colour and background options
+/// are only available here.
 pub fn to_bit_array_with(qr: qrkit.QrCode, options: PngOptions) -> BitArray {
   let PngOptions(module_size, margin, dark_color, light_color, background) =
     options

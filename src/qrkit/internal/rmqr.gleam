@@ -22,8 +22,8 @@ import qrkit/internal/segment
 import qrkit/internal/util
 import qrkit/types.{
   type ErrorCorrection, type Mode, type ModePreference, type RectangularPriority,
-  Alphanumeric, Byte, High, Kanji, Medium, NarrowestWidth, Numeric,
-  ShortestHeight, SmallestArea,
+  Alphanumeric, Byte, High, Kanji, Low, Medium, NarrowestWidth, Numeric,
+  Quartile, ShortestHeight, SmallestArea,
 }
 
 const total_versions: Int = 32
@@ -116,16 +116,15 @@ const alignment_columns: List(Int) = [
 
 /// Encode `text` into an rMQR symbol.
 ///
-/// `requested_version` is `Some(N)` (1-based, 1 = R7×43, 32 = R17×139) when
-/// the caller explicitly pinned the version via `qrkit.with_exact_version(N)`;
-/// in that case the encoder uses
-/// N as a strict version (capacity overflow at N returns `Error` instead of
-/// promoting to N+1). When `requested_version` is `None`, the encoder picks
-/// the smallest version that fits.
+/// `exact_version` is `Some(N)` (1-based, 1 = R7×43, 32 = R17×139) when the
+/// caller pinned the version with `qrkit.with_exact_version(N)`: the symbol
+/// is version N, and a payload that does not fit returns an `Error`. When it
+/// is `None`, the encoder picks the first version in the priority order that
+/// fits.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Option(Int),
+  exact_version: Option(Int),
   preference: ModePreference,
   priority: RectangularPriority,
 ) -> Result(matrix.Encoded, EncodeError) {
@@ -133,7 +132,7 @@ pub fn encode(
   use #(chosen, segments) <- result.try(resolve_version(
     text,
     ecc,
-    requested_version,
+    exact_version,
     preference,
     priority,
   ))
@@ -150,11 +149,11 @@ pub fn encode(
 fn resolve_version(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Option(Int),
+  exact_version: Option(Int),
   preference: ModePreference,
   priority: RectangularPriority,
 ) -> Result(#(Int, List(segment.Segment)), EncodeError) {
-  case requested_version {
+  case exact_version {
     None -> find_version(text, ecc, preference, search_order(priority))
     Some(value) ->
       case value < 1 || value > total_versions {
@@ -212,7 +211,7 @@ fn segments_bits(segments: List(segment.Segment), index: Int) -> Int {
 fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   case ecc {
     Medium | High -> Ok(Nil)
-    _ ->
+    Low | Quartile ->
       Error(IncompatibleOptions(
         "rMQR only supports M or H error correction levels",
       ))
@@ -248,7 +247,7 @@ fn search_order(priority: RectangularPriority) -> List(Int) {
       NarrowestWidth -> #(width, height)
     }
   }
-  util.range(0, total_versions - 1)
+  int.range(from: 0, to: total_versions, with: [], run: list.prepend)
   |> list.sort(fn(a, b) {
     let #(a1, a2) = key(a)
     let #(b1, b2) = key(b)
@@ -262,7 +261,7 @@ fn search_order(priority: RectangularPriority) -> List(Int) {
 /// Build a `DataExceedsCapacity` error for the bailout case where no rMQR
 /// version (R7×43..R17×139) accepts the payload at `ecc`. We report the
 /// R17×139 (largest) ceiling so the caller can see how far over the rMQR
-/// limit the input is — see #22 for why `(0, 0)` was useless.
+/// limit the input is.
 fn no_version_fits_error(
   text: String,
   ecc: ErrorCorrection,
@@ -282,14 +281,14 @@ fn data_capacity_bits(index: Int, ecc: ErrorCorrection) -> Int {
 pub fn data_codewords(index: Int, ecc: ErrorCorrection) -> Int {
   case ecc {
     High -> lookup_int(data_codewords_h, index)
-    _ -> lookup_int(data_codewords_m, index)
+    Low | Medium | Quartile -> lookup_int(data_codewords_m, index)
   }
 }
 
 pub fn ec_block_count(index: Int, ecc: ErrorCorrection) -> Int {
   case ecc {
     High -> lookup_int(ec_blocks_h, index)
-    _ -> lookup_int(ec_blocks_m, index)
+    Low | Medium | Quartile -> lookup_int(ec_blocks_m, index)
   }
 }
 
@@ -469,9 +468,9 @@ fn format_info_modules(
   v_size: Int,
 ) -> #(List(#(Int, Int)), List(#(Int, Int))) {
   let copy = fn(top, left, extra) {
-    util.range(0, 14)
-    |> list.map(fn(bit) { #(top + bit % 5, left + bit / 5) })
-    |> list.append(extra)
+    int.range(from: 14, to: -1, with: extra, run: fn(acc, bit) {
+      [#(top + bit % 5, left + bit / 5), ..acc]
+    })
   }
   #(
     copy(1, 8, [#(1, 11), #(2, 11), #(3, 11)]),
@@ -524,15 +523,13 @@ fn draw_timing_borders(
   v_size: Int,
 ) -> matrix.Matrix {
   let top_bottom =
-    util.range(0, h_size - 1)
-    |> list.fold(target, fn(acc, col) {
+    int.range(from: 0, to: h_size, with: target, run: fn(acc, col) {
       let dark = col % 2 == 0
       acc
       |> matrix.set(0, col, dark, reserved: True)
       |> matrix.set(v_size - 1, col, dark, reserved: True)
     })
-  util.range(0, v_size - 1)
-  |> list.fold(top_bottom, fn(acc, row) {
+  int.range(from: 0, to: v_size, with: top_bottom, run: fn(acc, row) {
     let dark = row % 2 == 0
     acc
     |> matrix.set(row, 0, dark, reserved: True)
@@ -541,10 +538,8 @@ fn draw_timing_borders(
 }
 
 fn draw_top_left_finder(target: matrix.Matrix) -> matrix.Matrix {
-  util.range(0, 6)
-  |> list.fold(target, fn(acc, row) {
-    util.range(0, 6)
-    |> list.fold(acc, fn(acc2, col) {
+  int.range(from: 0, to: 7, with: target, run: fn(acc, row) {
+    int.range(from: 0, to: 7, with: acc, run: fn(acc2, col) {
       let dark =
         row == 0
         || row == 6
@@ -561,10 +556,8 @@ fn draw_bottom_right_subfinder(
   h_size: Int,
   v_size: Int,
 ) -> matrix.Matrix {
-  util.range(0, 4)
-  |> list.fold(target, fn(acc, row) {
-    util.range(0, 4)
-    |> list.fold(acc, fn(acc2, col) {
+  int.range(from: 0, to: 5, with: target, run: fn(acc, row) {
+    int.range(from: 0, to: 5, with: acc, run: fn(acc2, col) {
       let dark =
         row == 0 || row == 4 || col == 0 || col == 4 || { row == 2 && col == 2 }
       matrix.set(acc2, v_size - 5 + row, h_size - 5 + col, dark, reserved: True)
@@ -595,15 +588,13 @@ fn draw_separator(
   v_size: Int,
 ) -> matrix.Matrix {
   let with_right =
-    util.range(0, 6)
-    |> list.fold(target, fn(acc, row) {
+    int.range(from: 0, to: 7, with: target, run: fn(acc, row) {
       matrix.set(acc, row, 7, False, reserved: True)
     })
   case v_size > 7 {
     False -> with_right
     True ->
-      util.range(0, 7)
-      |> list.fold(with_right, fn(acc, col) {
+      int.range(from: 0, to: 8, with: with_right, run: fn(acc, col) {
         case col >= h_size {
           True -> acc
           False -> matrix.set(acc, 7, col, False, reserved: True)
@@ -668,8 +659,7 @@ fn draw_alignment_column(
   v_size: Int,
 ) -> matrix.Matrix {
   let with_line =
-    util.range(0, v_size - 1)
-    |> list.fold(target, fn(acc, row) {
+    int.range(from: 0, to: v_size, with: target, run: fn(acc, row) {
       let dark = row % 2 == 0
       matrix.set(acc, row, column, dark, reserved: True)
     })
@@ -783,7 +773,7 @@ fn place_format_info(
 ) -> matrix.Matrix {
   let table_index = case ecc {
     High -> index + 32
-    _ -> index
+    Low | Medium | Quartile -> index
   }
   let #(left, right) = format_info_modules(h_size, v_size)
   target

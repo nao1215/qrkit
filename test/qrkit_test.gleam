@@ -75,6 +75,11 @@ pub fn empty_input_is_rejected_test() -> Nil {
   |> should.equal(Error(error.EmptyInput))
 }
 
+pub fn url_content_helper_test() -> Nil {
+  content.url("https://example.com/?q=a b")
+  |> should.equal("https://example.com/?q=a b")
+}
+
 pub fn wifi_content_helper_test() -> Nil {
   content.wifi(
     ssid: "MyAP",
@@ -650,6 +655,17 @@ pub fn structured_append_long_input_splits_test() -> Nil {
   let assert Ok(shards) = qrkit.encode_split(string.repeat("0123456789", 8), 2)
 
   { list.length(shards) >= 2 }
+  |> should.be_true
+}
+
+pub fn structured_append_with_level_test() -> Nil {
+  let assert Ok(shards) =
+    qrkit.encode_split_with(string.repeat("0123456789", 8), 2, types.High)
+
+  { list.length(shards) >= 2 }
+  |> should.be_true
+  list.map(shards, qrkit.error_correction)
+  |> list.all(fn(ecc) { ecc == types.High })
   |> should.be_true
 }
 
