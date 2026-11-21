@@ -91,7 +91,7 @@ pub fn is_kanji_char(char: String) -> Bool {
 }
 
 /// The narrowest mode that can encode `char` on its own.
-pub fn classify(char: String) -> Mode {
+fn classify(char: String) -> Mode {
   case is_numeric_char(char), is_alphanumeric_char(char), is_kanji_char(char) {
     True, _, _ -> Numeric
     _, True, _ -> Alphanumeric
@@ -130,7 +130,7 @@ pub fn encode(
   }
 }
 
-pub fn numeric_bits_length(length: Int) -> Int {
+fn numeric_bits_length(length: Int) -> Int {
   10
   * { length / 3 }
   + case length % 3 {
@@ -140,7 +140,7 @@ pub fn numeric_bits_length(length: Int) -> Int {
   }
 }
 
-pub fn alphanumeric_bits_length(length: Int) -> Int {
+fn alphanumeric_bits_length(length: Int) -> Int {
   11
   * { length / 2 }
   + case length % 2 {

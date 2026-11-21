@@ -19,7 +19,7 @@ import qrkit/internal/version
 import qrkit/types.{type ErrorCorrection, Auto}
 
 /// Upper bound on the number of shards allowed by ISO/IEC 18004 §8.2.
-pub const max_symbols: Int = 16
+const max_symbols: Int = 16
 
 /// Encode the data using as few shards as possible while respecting
 /// `max_version` per shard. Returns a list of `standard.Encoded` symbols.
@@ -39,7 +39,7 @@ pub fn encode(
 }
 
 /// Compute the parity byte (XOR of all UTF-8 bytes of `data`).
-pub fn parity_of(data: String) -> Int {
+fn parity_of(data: String) -> Int {
   parity_of_bits(bit_array.from_string(data), 0)
 }
 

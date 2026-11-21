@@ -41,7 +41,7 @@ pub fn penalty_total(target: matrix.Matrix) -> Int {
   + penalty_n4(target)
 }
 
-pub fn penalty_n1(target: matrix.Matrix) -> Int {
+fn penalty_n1(target: matrix.Matrix) -> Int {
   penalty_runs(target, 0, 0, 0)
 }
 
@@ -94,7 +94,7 @@ fn run_penalty(run_length: Int) -> Int {
   }
 }
 
-pub fn penalty_n2(target: matrix.Matrix) -> Int {
+fn penalty_n2(target: matrix.Matrix) -> Int {
   do_penalty_n2(target, 0, 0, 0)
 }
 
@@ -120,7 +120,7 @@ fn do_penalty_n2(target: matrix.Matrix, row: Int, col: Int, acc: Int) -> Int {
   }
 }
 
-pub fn penalty_n3(target: matrix.Matrix) -> Int {
+fn penalty_n3(target: matrix.Matrix) -> Int {
   let rows =
     util.range(0, matrix.height(target) - 1)
     |> list.fold(0, fn(acc, row) {
@@ -162,7 +162,7 @@ fn take_bits(values: List(Bool), count: Int, acc: Int) -> Int {
   }
 }
 
-pub fn penalty_n4(target: matrix.Matrix) -> Int {
+fn penalty_n4(target: matrix.Matrix) -> Int {
   let dark = matrix.dark_count(target)
   let total = matrix.total_cells(target)
   let percentage = dark * 100 / total

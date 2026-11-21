@@ -808,25 +808,6 @@ pub fn reed_solomon_v1_m_iso_vector_test() -> Nil {
   ])
 }
 
-pub fn reed_solomon_generator_polynomial_test() -> Nil {
-  // ISO/IEC 18004 §A.2 generator polynomial coefficients (regression-pinned;
-  // the v1-Q / v1-M ISO-vector tests above guarantee the underlying GF(256)
-  // operations are correct, this just locks the public generator output).
-  reed_solomon.generator_polynomial(7)
-  |> should.equal([1, 127, 122, 154, 164, 11, 68, 117])
-  reed_solomon.generator_polynomial(10)
-  |> should.equal([1, 216, 194, 159, 111, 199, 94, 95, 113, 157, 193])
-  reed_solomon.generator_polynomial(15)
-  |> should.equal([
-    1, 29, 196, 111, 163, 112, 74, 10, 105, 105, 139, 132, 151, 32, 134, 26,
-  ])
-  reed_solomon.generator_polynomial(20)
-  |> should.equal([
-    1, 152, 185, 240, 5, 111, 99, 6, 220, 112, 150, 69, 36, 187, 22, 228, 198,
-    121, 121, 165, 174,
-  ])
-}
-
 // ---------------------------------------------------------------------------
 // Character-count indicator version bracket boundaries
 // (ISO/IEC 18004 Table 3 — Byte mode uses 8 bits for v1-9 and 16 bits for v10+;

@@ -6,7 +6,7 @@ import gleam/list
 import qrkit/internal/util
 
 /// Create a generator polynomial for the requested error-correction degree.
-pub fn generator_polynomial(degree: Int) -> List(Int) {
+fn generator_polynomial(degree: Int) -> List(Int) {
   do_generator_polynomial(degree, [1])
 }
 
@@ -317,11 +317,11 @@ fn gf_power(base: Int, exponent: Int, acc: Int) -> Int {
 }
 
 /// Multiply two field elements in GF(2^8) with primitive polynomial `0x11D`.
-pub fn gf_multiply(a: Int, b: Int) -> Int {
+fn gf_multiply(a: Int, b: Int) -> Int {
   gf_multiply_loop(a, b, 0)
 }
 
-pub fn gf_exp(exponent: Int) -> Int {
+fn gf_exp(exponent: Int) -> Int {
   gf_exp_loop(normalise_exponent(exponent), 1)
 }
 

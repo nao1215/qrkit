@@ -496,7 +496,7 @@ fn pad_alternating(
 /// Total number of full data codewords for `(version, ecc)`. Half-byte cases
 /// (M1-L, M3-L, M3-M) round up to the next byte; the half-codeword behaviour is
 /// applied during matrix placement.
-pub fn data_codewords(
+fn data_codewords(
   version: Int,
   ecc: ErrorCorrection,
 ) -> Result(Int, EncodeError) {
@@ -518,7 +518,7 @@ fn compute_ec(
 }
 
 /// M1, M3-L and M3-M end their data with a 4-bit codeword.
-pub fn has_half_codeword(version: Int, ecc: ErrorCorrection) -> Bool {
+fn has_half_codeword(version: Int, ecc: ErrorCorrection) -> Bool {
   case version, ecc {
     1, Low -> True
     3, Low -> True

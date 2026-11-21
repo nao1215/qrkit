@@ -35,7 +35,7 @@ const ec_codewords_table = [
   2310, 750, 1372, 2040, 2430,
 ]
 
-pub fn is_valid(version: Int) -> Bool {
+fn is_valid(version: Int) -> Bool {
   version >= 1 && version <= 40
 }
 
@@ -53,7 +53,7 @@ pub fn total_codewords(version: Int) -> Result(Int, EncodeError) {
   }
 }
 
-pub fn ec_total_codewords(
+fn ec_total_codewords(
   version: Int,
   ecc: ErrorCorrection,
 ) -> Result(Int, EncodeError) {
