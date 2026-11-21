@@ -6,6 +6,7 @@ import gleeunit
 import gleeunit/should
 import qrkit
 import qrkit/content
+import qrkit/decode
 import qrkit/error
 import qrkit/internal/reed_solomon
 import qrkit/render/ascii
@@ -73,6 +74,11 @@ pub fn builder_accepts_explicit_ecc_test() -> Nil {
 pub fn empty_input_is_rejected_test() -> Nil {
   qrkit.encode("")
   |> should.equal(Error(error.EmptyInput))
+}
+
+pub fn url_content_helper_test() -> Nil {
+  content.url("https://example.com/?q=a b")
+  |> should.equal("https://example.com/?q=a b")
 }
 
 pub fn wifi_content_helper_test() -> Nil {
@@ -653,6 +659,19 @@ pub fn structured_append_long_input_splits_test() -> Nil {
   |> should.be_true
 }
 
+pub fn structured_append_with_level_test() -> Nil {
+  let assert Ok(shards) =
+    qrkit.encode_split_with(string.repeat("0123456789", 8), 2, types.High)
+
+  { list.length(shards) >= 2 }
+  |> should.be_true
+  list.map(shards, fn(shard) {
+    decode.from_rows(qrkit.rows(shard)) |> result.map(decode.error_correction)
+  })
+  |> list.all(fn(level) { level == Ok(types.High) })
+  |> should.be_true
+}
+
 pub fn structured_append_max_version_too_small_test() -> Nil {
   qrkit.encode_split(string.repeat("0123456789", 60), 1)
   |> result_is_data_too_long
@@ -808,22 +827,22 @@ pub fn reed_solomon_v1_m_iso_vector_test() -> Nil {
   ])
 }
 
-pub fn reed_solomon_generator_polynomial_test() -> Nil {
-  // ISO/IEC 18004 §A.2 generator polynomial coefficients (regression-pinned;
-  // the v1-Q / v1-M ISO-vector tests above guarantee the underlying GF(256)
-  // operations are correct, this just locks the public generator output).
-  reed_solomon.generator_polynomial(7)
-  |> should.equal([1, 127, 122, 154, 164, 11, 68, 117])
-  reed_solomon.generator_polynomial(10)
-  |> should.equal([1, 216, 194, 159, 111, 199, 94, 95, 113, 157, 193])
-  reed_solomon.generator_polynomial(15)
+pub fn reed_solomon_generator_coefficients_test() -> Nil {
+  // The remainder of x^d divided by the degree-d generator is the generator
+  // without its leading 1, so encoding [1] pins the ISO/IEC 18004 Annex A
+  // coefficients.
+  reed_solomon.encode([1], 7)
+  |> should.equal([127, 122, 154, 164, 11, 68, 117])
+  reed_solomon.encode([1], 10)
+  |> should.equal([216, 194, 159, 111, 199, 94, 95, 113, 157, 193])
+  reed_solomon.encode([1], 15)
   |> should.equal([
-    1, 29, 196, 111, 163, 112, 74, 10, 105, 105, 139, 132, 151, 32, 134, 26,
+    29, 196, 111, 163, 112, 74, 10, 105, 105, 139, 132, 151, 32, 134, 26,
   ])
-  reed_solomon.generator_polynomial(20)
+  reed_solomon.encode([1], 20)
   |> should.equal([
-    1, 152, 185, 240, 5, 111, 99, 6, 220, 112, 150, 69, 36, 187, 22, 228, 198,
-    121, 121, 165, 174,
+    152, 185, 240, 5, 111, 99, 6, 220, 112, 150, 69, 36, 187, 22, 228, 198, 121,
+    121, 165, 174,
   ])
 }
 

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- `decode.from_rows` overflowed the JavaScript stack on a long Numeric or Alphanumeric segment, such as a version 40 symbol of 7089 digits. It now reads them on both targets.
+
+### Changed
+
+- The minimum `gleam_stdlib` version is now 0.69.0 (was 0.66.0, which was never published), the first release with `int.range`.
+
 ## [0.7.0] - 2026-11-19
 
 ### Removed

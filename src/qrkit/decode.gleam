@@ -33,6 +33,7 @@ import qrkit/error.{
   type DecodeError, MalformedData, NotASymbol, TooManyErrors,
   UnreadableFormatInformation,
 }
+import qrkit/internal/bitstream
 import qrkit/internal/format_info
 import qrkit/internal/mask
 import qrkit/internal/micro
@@ -115,11 +116,11 @@ pub fn from_rows(rows: List(List(Bool))) -> Result(Decoded, DecodeError) {
   case dimensions(trimmed) {
     Error(error) -> Error(error)
     Ok(#(width, height)) -> {
-      let candidates = case width == height {
+      let other_orientations = case width == height {
         True -> square_orientations(trimmed)
         False -> rectangular_orientations(trimmed)
       }
-      first_success(candidates, fn(candidate) {
+      first_success(trimmed, other_orientations, fn(candidate) {
         decode_grid(Grid(
           width_of(candidate),
           list.length(candidate),
@@ -178,7 +179,7 @@ fn trim_quiet_zone(rows: List(List(Bool))) -> List(List(Bool)) {
     |> list.reverse
   case trimmed_rows {
     [] -> []
-    _ -> transpose(transpose(trimmed_rows) |> trim_rows(light))
+    _ -> list.transpose(list.transpose(trimmed_rows) |> trim_rows(light))
   }
 }
 
@@ -193,18 +194,15 @@ fn trim_rows(
   |> list.reverse
 }
 
-fn transpose(rows: List(List(Bool))) -> List(List(Bool)) {
-  list.transpose(rows)
-}
-
+/// The seven rotations and mirror images of a square grid, other than the
+/// grid itself.
 fn square_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
-  let rotate = fn(r) { transpose(r) |> list.map(list.reverse) }
+  let rotate = fn(r) { list.transpose(r) |> list.map(list.reverse) }
   let r90 = rotate(rows)
   let r180 = rotate(r90)
   let r270 = rotate(r180)
-  let mirrored = transpose(rows)
+  let mirrored = list.transpose(rows)
   [
-    rows,
     r90,
     r180,
     r270,
@@ -215,46 +213,44 @@ fn square_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   ]
 }
 
-/// rMQR symbols are wider than they are tall, so a taller grid is a symbol
-/// turned on its side: it is transposed before the four flips are tried. The
-/// grid as given stays the first candidate, so an unreadable grid reports
-/// the error for the orientation the caller supplied.
+/// The orientations of a rectangular grid to try after the grid itself. rMQR
+/// symbols are wider than they are tall, so a taller grid is a symbol turned
+/// on its side: it is transposed before the four flips are tried.
 fn rectangular_orientations(rows: List(List(Bool))) -> List(List(List(Bool))) {
   let flip_vertical = list.reverse
   let flip_horizontal = fn(r) { list.map(r, list.reverse) }
   let flips = fn(wide) {
     [
-      wide,
       flip_horizontal(flip_vertical(wide)),
       flip_horizontal(wide),
       flip_vertical(wide),
     ]
   }
   case list.length(rows) > width_of(rows) {
-    True -> [rows, ..flips(transpose(rows))]
+    True -> {
+      let wide = list.transpose(rows)
+      [wide, ..flips(wide)]
+    }
     False -> flips(rows)
   }
 }
 
-/// Return the first success; otherwise the error of the first candidate,
-/// which is the orientation the caller supplied.
+/// Return the first success; otherwise the error of `first`, which is the
+/// orientation the caller supplied.
 fn first_success(
-  candidates: List(a),
+  first: a,
+  rest: List(a),
   attempt: fn(a) -> Result(b, DecodeError),
 ) -> Result(b, DecodeError) {
-  case candidates {
-    [] -> Error(UnreadableFormatInformation)
-    [first, ..rest] ->
-      case attempt(first) {
-        Ok(value) -> Ok(value)
-        Error(error) ->
-          list.fold_until(rest, Error(error), fn(acc, candidate) {
-            case attempt(candidate) {
-              Ok(value) -> list.Stop(Ok(value))
-              Error(_) -> list.Continue(acc)
-            }
-          })
-      }
+  case attempt(first) {
+    Ok(value) -> Ok(value)
+    Error(error) ->
+      list.fold_until(rest, Error(error), fn(acc, candidate) {
+        case attempt(candidate) {
+          Ok(value) -> list.Stop(Ok(value))
+          Error(_) -> list.Continue(acc)
+        }
+      })
   }
 }
 
@@ -294,25 +290,43 @@ fn decode_standard(grid: Grid) -> Result(Decoded, DecodeError) {
     version.data_codewords(symbol_version, ecc) |> result.unwrap(0)
   let blocks = version.ec_blocks(symbol_version, ecc) |> result.unwrap(1)
   use #(data, corrected) <- result.try(correct_blocks(
-    to_bytes(list.take(bits, total * 8)),
+    bitstream.bits_to_bytes(list.take(bits, total * 8)),
     total,
     data_count,
     blocks,
   ))
   use parsed <- result.try(parse(
-    bytes_to_bits(data),
+    bitstream.bytes_to_bits(data),
     standard_profile(symbol_version),
   ))
-  Ok(Decoded(
-    parsed.text,
+  Ok(decoded(
+    parsed,
     types.Standard,
     symbol_version,
     ecc,
     mask_number,
     corrected,
+  ))
+}
+
+fn decoded(
+  parsed: Parsed,
+  symbol: Symbol,
+  version: Int,
+  ecc: ErrorCorrection,
+  mask: Int,
+  errors_corrected: Int,
+) -> Decoded {
+  Decoded(
+    parsed.text,
+    symbol,
+    version,
+    ecc,
+    mask,
+    errors_corrected,
     parsed.eci,
     parsed.structured_append,
-  ))
+  )
 }
 
 fn decode_micro(grid: Grid) -> Result(Decoded, DecodeError) {
@@ -335,27 +349,28 @@ fn decode_micro(grid: Grid) -> Result(Decoded, DecodeError) {
       // nibble, as the encoder computed the error correction over it.
       let padded_data =
         list.append(data_part, list.repeat(False, { 8 - data_bits % 8 } % 8))
-      let data_codewords = to_bytes(padded_data)
+      let data_codewords = bitstream.bits_to_bytes(padded_data)
       let received =
-        list.append(data_codewords, to_bytes(list.take(rest, ec_count * 8)))
+        list.append(
+          data_codewords,
+          bitstream.bits_to_bytes(list.take(rest, ec_count * 8)),
+        )
       use #(block, corrected) <- result.try(
         reed_solomon.correct(received, ec_count)
         |> result.replace_error(TooManyErrors),
       )
       let data =
         list.take(block, list.length(data_codewords))
-        |> bytes_to_bits
+        |> bitstream.bytes_to_bits
         |> list.take(data_bits)
       use parsed <- result.try(parse(data, micro_profile(symbol_version)))
-      Ok(Decoded(
-        parsed.text,
+      Ok(decoded(
+        parsed,
         types.Micro,
         symbol_version,
         ecc,
         mask_number,
         corrected,
-        parsed.eci,
-        parsed.structured_append,
       ))
     }
   }
@@ -374,22 +389,16 @@ fn decode_rmqr(grid: Grid, index: Int) -> Result(Decoded, DecodeError) {
         read_bits(grid, rmqr.data_module_positions(index), rmqr.mask_at)
       let total = rmqr.total_codewords(index)
       use #(data, corrected) <- result.try(correct_blocks(
-        to_bytes(list.take(bits, total * 8)),
+        bitstream.bits_to_bytes(list.take(bits, total * 8)),
         total,
         rmqr.data_codewords(index, ecc),
         rmqr.ec_block_count(index, ecc),
       ))
-      use parsed <- result.try(parse(bytes_to_bits(data), rmqr_profile(index)))
-      Ok(Decoded(
-        parsed.text,
-        types.Rectangular,
-        index + 1,
-        ecc,
-        4,
-        corrected,
-        parsed.eci,
-        parsed.structured_append,
+      use parsed <- result.try(parse(
+        bitstream.bytes_to_bits(data),
+        rmqr_profile(index),
       ))
+      Ok(decoded(parsed, types.Rectangular, index + 1, ecc, 4, corrected))
     }
   }
 }
@@ -423,38 +432,13 @@ fn correct_blocks(
     case reed_solomon.correct(block, ec_count) {
       Ok(#(fixed, count)) ->
         Ok(#(
-          list.append(acc.0, list.take(fixed, list.length(fixed) - ec_count)),
+          [list.take(fixed, list.length(fixed) - ec_count), ..acc.0],
           acc.1 + count,
         ))
       Error(Nil) -> Error(TooManyErrors)
     }
   })
-}
-
-fn to_bytes(bits: List(Bool)) -> List(Int) {
-  list.sized_chunk(bits, 8)
-  |> list.filter(fn(chunk) { list.length(chunk) == 8 })
-  |> list.map(bits_to_int)
-}
-
-fn bits_to_int(bits: List(Bool)) -> Int {
-  list.fold(bits, 0, fn(acc, bit) {
-    acc
-    * 2
-    + case bit {
-      True -> 1
-      False -> 0
-    }
-  })
-}
-
-fn bytes_to_bits(bytes: List(Int)) -> List(Bool) {
-  list.flat_map(bytes, fn(byte) {
-    [7, 6, 5, 4, 3, 2, 1, 0]
-    |> list.map(fn(shift) {
-      int.bitwise_and(int.bitwise_shift_right(byte, shift), 1) == 1
-    })
-  })
+  |> result.map(fn(acc) { #(list.flatten(list.reverse(acc.0)), acc.1) })
 }
 
 // --- Bit stream ------------------------------------------------------------
@@ -572,18 +556,21 @@ fn parse_segments(
   profile: Profile,
   state: State,
 ) -> Result(State, DecodeError) {
-  let remaining = list.length(bits)
+  // The data ends at a terminator, or where fewer bits than a terminator
+  // remain.
+  let head = list.take(bits, profile.terminator_bits)
   let at_end =
-    remaining < profile.terminator_bits
-    || list.all(list.take(bits, profile.terminator_bits), fn(bit) { !bit })
-  case remaining == 0 || at_end {
+    list.length(head) < profile.terminator_bits
+    || list.all(head, fn(bit) { !bit })
+  case bits == [] || at_end {
     True -> Ok(state)
     False -> {
       let #(indicator, rest) = list.split(bits, profile.indicator_bits)
-      case profile.segment(bits_to_int(indicator)) {
+      case profile.segment(bitstream.bits_to_int(indicator)) {
         Error(Nil) ->
           Error(MalformedData(
-            "unknown mode indicator " <> int.to_string(bits_to_int(indicator)),
+            "unknown mode indicator "
+            <> int.to_string(bitstream.bits_to_int(indicator)),
           ))
         Ok(End) -> Ok(state)
         Ok(Fnc1First) -> parse_segments(rest, profile, state)
@@ -715,10 +702,14 @@ fn read_numeric(
         2 -> #(2, 7)
         _ -> #(3, 10)
       }
-      use #(value, rest) <- result.try(take_int(bits, width, "Numeric"))
-      case value < power_of_ten(digits) {
-        False -> Error(MalformedData("Numeric group out of range"))
-        True ->
+      // A plain case rather than `use`, so the loop stays a tail call and a
+      // long segment does not grow the JavaScript stack.
+      let limit = power_of_ten(digits)
+      case take_int(bits, width, "Numeric") {
+        Error(error) -> Error(error)
+        Ok(#(value, _)) if value >= limit ->
+          Error(MalformedData("Numeric group out of range"))
+        Ok(#(value, rest)) ->
           read_numeric(
             rest,
             count - digits,
@@ -737,9 +728,6 @@ fn power_of_ten(digits: Int) -> Int {
   }
 }
 
-const alphanumeric_table: String =
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
-
 fn read_alphanumeric(
   bits: List(Bool),
   count: Int,
@@ -753,19 +741,24 @@ fn read_alphanumeric(
       Ok(#(acc <> char, rest))
     }
     _ -> {
-      use #(value, rest) <- result.try(take_int(bits, 11, "Alphanumeric"))
-      use first <- result.try(alphanumeric_char(value / 45))
-      use second <- result.try(alphanumeric_char(value % 45))
-      read_alphanumeric(rest, count - 2, acc <> first <> second)
+      let pair = {
+        use #(value, rest) <- result.try(take_int(bits, 11, "Alphanumeric"))
+        use first <- result.try(alphanumeric_char(value / 45))
+        use second <- result.try(alphanumeric_char(value % 45))
+        Ok(#(first <> second, rest))
+      }
+      // Recurse outside `use` so the loop stays a tail call.
+      case pair {
+        Error(error) -> Error(error)
+        Ok(#(text, rest)) -> read_alphanumeric(rest, count - 2, acc <> text)
+      }
     }
   }
 }
 
 fn alphanumeric_char(value: Int) -> Result(String, DecodeError) {
-  case value < 45 {
-    True -> Ok(string.slice(alphanumeric_table, value, 1))
-    False -> Error(MalformedData("Alphanumeric value out of range"))
-  }
+  mode.alphanumeric_char(value)
+  |> result.replace_error(MalformedData("Alphanumeric value out of range"))
 }
 
 fn kanji_character(value: Int) -> Result(String, DecodeError) {
@@ -931,7 +924,7 @@ fn take_int(
 ) -> Result(#(Int, List(Bool)), DecodeError) {
   let #(head, rest) = list.split(bits, width)
   case list.length(head) == width {
-    True -> Ok(#(bits_to_int(head), rest))
+    True -> Ok(#(bitstream.bits_to_int(head), rest))
     False -> Error(MalformedData(what <> " segment is truncated"))
   }
 }
@@ -944,7 +937,11 @@ fn take_values(
 ) -> Result(#(List(Int), List(Bool)), DecodeError) {
   let #(head, rest) = list.split(bits, count * width)
   case list.length(head) == count * width {
-    True -> Ok(#(list.sized_chunk(head, width) |> list.map(bits_to_int), rest))
+    True ->
+      Ok(#(
+        list.sized_chunk(head, width) |> list.map(bitstream.bits_to_int),
+        rest,
+      ))
     False -> Error(MalformedData(what <> " segment is truncated"))
   }
 }

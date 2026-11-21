@@ -4,56 +4,24 @@
 //// engine, bitstream, and matrix primitives; mask selection, format info and
 //// data placement follow the Micro QR rules.
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import qrkit/error.{
   type EncodeError, DataExceedsCapacity, IncompatibleOptions, InvalidVersion,
 }
 import qrkit/internal/bitstream
 import qrkit/internal/format_info
+import qrkit/internal/mask
 import qrkit/internal/matrix
 import qrkit/internal/mode
 import qrkit/internal/reed_solomon
 import qrkit/internal/segment
 import qrkit/internal/util
 import qrkit/types.{
-  type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte,
+  type ErrorCorrection, type Mode, type ModePreference, Alphanumeric, Byte, High,
   Kanji, Low, Medium, Numeric, Quartile,
-}
-
-pub opaque type Encoded {
-  Encoded(
-    version: Int,
-    width: Int,
-    height: Int,
-    mask: Int,
-    rows: List(List(Bool)),
-  )
-}
-
-pub fn version(encoded: Encoded) -> Int {
-  let Encoded(version, _, _, _, _) = encoded
-  version
-}
-
-pub fn width(encoded: Encoded) -> Int {
-  let Encoded(_, width, _, _, _) = encoded
-  width
-}
-
-pub fn height(encoded: Encoded) -> Int {
-  let Encoded(_, _, height, _, _) = encoded
-  height
-}
-
-pub fn rows(encoded: Encoded) -> List(List(Bool)) {
-  let Encoded(_, _, _, _, rows) = encoded
-  rows
-}
-
-pub fn mask(encoded: Encoded) -> Int {
-  let Encoded(_, _, _, mask, _) = encoded
-  mask
 }
 
 const finder_size: Int = 7
@@ -71,45 +39,53 @@ const format_info_table: List(Int) = [
   0x3E8D, 0x3BBA,
 ]
 
+/// Every Micro QR version and error correction level pair in symbol number
+/// order (ISO/IEC 18004 Table 13), with its data capacity in bits and its
+/// number of error correction codewords.
+const symbols: List(#(Int, ErrorCorrection, Int, Int)) = [
+  #(1, Low, 20, 2),
+  #(2, Low, 40, 5),
+  #(2, Medium, 32, 6),
+  #(3, Low, 84, 6),
+  #(3, Medium, 68, 8),
+  #(4, Low, 128, 8),
+  #(4, Medium, 112, 10),
+  #(4, Quartile, 80, 14),
+]
+
 /// Encode `text` into a Micro QR code.
 ///
-/// `requested_version` is `Some(N)` when the caller explicitly pinned the
-/// version via `qrkit.with_exact_version(N)`, in which case the encoder uses N as a strict
-/// version (any mode/ECC/capacity mismatch surfaces as an `Error`). When
-/// `requested_version` is `None`, the encoder picks the smallest version that
-/// fits the payload.
+/// `exact_version` is `Some(N)` when the caller pinned the version with
+/// `qrkit.with_exact_version(N)`: the symbol is MN, and a mode, error
+/// correction level or payload that MN cannot carry returns an `Error`. When
+/// it is `None`, the encoder picks the smallest version that fits the
+/// payload.
 pub fn encode(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Option(Int),
+  exact_version: Option(Int),
   preference: ModePreference,
-) -> Result(Encoded, EncodeError) {
-  use _ <- result_try(validate_requested(requested_version))
-  use _ <- result_try(validate_ecc(ecc))
-  use #(chosen_version, segments) <- result_try(resolve_version(
+) -> Result(matrix.Encoded, EncodeError) {
+  use _ <- result.try(validate_exact_version(exact_version))
+  use _ <- result.try(validate_ecc(ecc))
+  use #(chosen_version, segments) <- result.try(resolve_version(
     text,
     ecc,
-    requested_version,
+    exact_version,
     preference,
   ))
-  use codewords <- result_try(create_codewords(segments, ecc, chosen_version))
+  use codewords <- result.try(create_codewords(segments, ecc, chosen_version))
   case build_matrix(chosen_version, ecc, codewords) {
     Ok(#(best_mask, final_matrix)) ->
-      Ok(Encoded(
-        chosen_version,
-        matrix.width(final_matrix),
-        matrix.height(final_matrix),
-        best_mask,
-        matrix.rows(final_matrix),
-      ))
+      Ok(matrix.encoded(final_matrix, version: chosen_version, mask: best_mask))
     Error(error) -> Error(error)
   }
 }
 
-fn validate_requested(
-  requested_version: Option(Int),
+fn validate_exact_version(
+  exact_version: Option(Int),
 ) -> Result(Nil, EncodeError) {
-  case requested_version {
+  case exact_version {
     None -> Ok(Nil)
     Some(value) -> validate_version(value)
   }
@@ -118,19 +94,18 @@ fn validate_requested(
 /// Resolve the version the encoder should use, with the segments measured
 /// for it (the mode indicator and character counts widen with the version).
 ///
-/// - When `requested_version` is `None`, walk versions from `min_version`
-///   upward and pick the first that fits the payload (the historical
-///   "smallest fit" behaviour).
-/// - When `requested_version` is `Some(N)`, use N as a strict floor: if N
-///   cannot encode the characters, support the ECC level, or hold the
-///   payload, return a typed `Error` instead of silently promoting to N+1.
+/// - When `exact_version` is `None`, walk versions from `min_version` upward
+///   and pick the first that fits the payload.
+/// - When `exact_version` is `Some(N)`, use exactly N: if N cannot encode the
+///   characters, support the ECC level, or hold the payload, return the
+///   `Error` that explains why.
 fn resolve_version(
   text: String,
   ecc: ErrorCorrection,
-  requested_version: Option(Int),
+  exact_version: Option(Int),
   preference: ModePreference,
 ) -> Result(#(Int, List(segment.Segment)), EncodeError) {
-  case requested_version {
+  case exact_version {
     None -> do_find_version(text, ecc, preference, min_version)
     Some(n) -> check_version(text, ecc, preference, n)
   }
@@ -145,8 +120,8 @@ fn check_version(
   preference: ModePreference,
   candidate: Int,
 ) -> Result(#(Int, List(segment.Segment)), EncodeError) {
-  use segments <- result_try(segments_at(text, preference, candidate))
-  use capacity <- result_try(data_capacity_bits(candidate, ecc))
+  use segments <- result.try(segments_at(text, preference, candidate))
+  use capacity <- result.try(data_capacity_bits(candidate, ecc))
   let required = segments_bits(segments, candidate)
   case required <= capacity {
     True -> Ok(#(candidate, segments))
@@ -172,7 +147,7 @@ fn segments_at(
     False ->
       Error(IncompatibleOptions(
         "Micro QR M"
-        <> int_to_str(version)
+        <> int.to_string(version)
         <> " does not support the "
         <> mode_name(single_mode)
         <> " mode",
@@ -204,11 +179,11 @@ fn header_bits(version: Int) -> fn(Mode) -> Result(Int, Nil) {
 
 fn segments_bits(segments: List(segment.Segment), version: Int) -> Int {
   list.fold(segments, 0, fn(acc, seg) {
-    let count_bits = case char_count_bits_for_mode(segment.mode(seg), version) {
+    let count_bits = case char_count_bits_for_mode(seg.mode, version) {
       Ok(value) -> value
       Error(_) -> 0
     }
-    acc + mode_indicator_bits(version) + count_bits + segment.bits(seg)
+    acc + mode_indicator_bits(version) + count_bits + seg.bits
   })
 }
 
@@ -234,22 +209,7 @@ pub fn data_capacity_bits(
   version: Int,
   ecc: ErrorCorrection,
 ) -> Result(Int, EncodeError) {
-  case version, ecc {
-    1, Low -> Ok(20)
-    2, Low -> Ok(40)
-    2, Medium -> Ok(32)
-    3, Low -> Ok(84)
-    3, Medium -> Ok(68)
-    4, Low -> Ok(128)
-    4, Medium -> Ok(112)
-    4, Quartile -> Ok(80)
-    _, _ ->
-      Error(IncompatibleOptions(
-        "Micro QR M"
-        <> int_to_str(version)
-        <> " does not support the requested error correction level",
-      ))
-  }
+  symbol(version, ecc) |> result.map(fn(found) { found.1 })
 }
 
 /// Number of error-correction codewords for `(version, ecc)`.
@@ -257,22 +217,28 @@ pub fn ec_codewords(
   version: Int,
   ecc: ErrorCorrection,
 ) -> Result(Int, EncodeError) {
-  case version, ecc {
-    1, Low -> Ok(2)
-    2, Low -> Ok(5)
-    2, Medium -> Ok(6)
-    3, Low -> Ok(6)
-    3, Medium -> Ok(8)
-    4, Low -> Ok(8)
-    4, Medium -> Ok(10)
-    4, Quartile -> Ok(14)
-    _, _ ->
-      Error(IncompatibleOptions(
-        "Micro QR M"
-        <> int_to_str(version)
-        <> " does not support the requested error correction level",
-      ))
-  }
+  symbol(version, ecc) |> result.map(fn(found) { found.2 })
+}
+
+/// The symbol number, data capacity in bits and error correction codeword
+/// count of `(version, ecc)`, from `symbols`.
+fn symbol(
+  version: Int,
+  ecc: ErrorCorrection,
+) -> Result(#(Int, Int, Int), EncodeError) {
+  list.index_fold(symbols, Error(Nil), fn(found, entry, number) {
+    case found, entry {
+      Error(Nil), #(entry_version, entry_ecc, data_bits, ec_count)
+        if entry_version == version && entry_ecc == ecc
+      -> Ok(#(number, data_bits, ec_count))
+      _, _ -> found
+    }
+  })
+  |> result.replace_error(IncompatibleOptions(
+    "Micro QR M"
+    <> int.to_string(version)
+    <> " does not support the requested error correction level",
+  ))
 }
 
 fn validate_version(version: Int) -> Result(Nil, EncodeError) {
@@ -285,7 +251,7 @@ fn validate_version(version: Int) -> Result(Nil, EncodeError) {
 fn validate_ecc(ecc: ErrorCorrection) -> Result(Nil, EncodeError) {
   case ecc {
     Low | Medium | Quartile -> Ok(Nil)
-    _ ->
+    High ->
       Error(IncompatibleOptions(
         "Micro QR does not support the High error correction level",
       ))
@@ -311,8 +277,7 @@ fn do_find_version(
 /// Build a `DataExceedsCapacity` error for the bailout case where no Micro QR
 /// version in `min_version..=max_version` accepts the payload at `ecc`. The
 /// fields point at the M4 ceiling (every Micro QR mode is supported at M4) so
-/// the caller can see how far over the Micro-QR ceiling the input is — see
-/// #22 for why `(0, 0)` was useless.
+/// the caller can see how far over the Micro-QR ceiling the input is.
 fn no_version_fits_error(
   text: String,
   ecc: ErrorCorrection,
@@ -372,7 +337,7 @@ pub fn char_count_bits_for_mode(
     4, Kanji -> Ok(4)
     _, _ ->
       Error(IncompatibleOptions(
-        "Mode is not supported by Micro QR M" <> int_to_str(version),
+        "Mode is not supported by Micro QR M" <> int.to_string(version),
       ))
   }
 }
@@ -382,24 +347,15 @@ fn create_codewords(
   ecc: ErrorCorrection,
   version: Int,
 ) -> Result(List(Int), EncodeError) {
-  use capacity <- result_try(data_capacity_bits(version, ecc))
-  use stream <- result_try(
-    list.try_fold(segments, bitstream.new(), fn(stream, seg) {
-      use count_bits <- result_try(char_count_bits_for_mode(
-        segment.mode(seg),
-        version,
+  use capacity <- result.try(data_capacity_bits(version, ecc))
+  use stream <- result.try(
+    segment.append_segments(bitstream.new(), segments, fn(segment_mode) {
+      char_count_bits_for_mode(segment_mode, version)
+      |> result.map(segment.Header(
+        mode_indicator_value(segment_mode),
+        mode_indicator_bits(version),
+        _,
       ))
-      use payload <- result_try(mode.encode(
-        segment.data(seg),
-        segment.mode(seg),
-        at_index: segment.index(seg),
-      ))
-      Ok(
-        stream
-        |> append_mode_indicator(segment.mode(seg), version)
-        |> bitstream.append_bits(segment.count(seg), size: count_bits)
-        |> bitstream.append_bytes(payload),
-      )
     }),
   )
   let total_bits = bitstream.length_bits(stream)
@@ -410,23 +366,10 @@ fn create_codewords(
       let with_terminator =
         bitstream.append_bits(stream, 0, size: terminator_bits)
       let padded = pad_to_capacity(with_terminator, version, ecc)
-      use data_bytes <- result_try(Ok(bitstream.to_byte_list(padded)))
-      use ec_bytes <- result_try(compute_ec(data_bytes, version, ecc))
+      let data_bytes = bitstream.to_byte_list(padded)
+      use ec_bytes <- result.try(compute_ec(data_bytes, version, ecc))
       Ok(list.append(data_bytes, ec_bytes))
     }
-  }
-}
-
-fn append_mode_indicator(
-  stream: bitstream.BitStream,
-  selected_mode: Mode,
-  version: Int,
-) -> bitstream.BitStream {
-  let bits = mode_indicator_bits(version)
-  case bits {
-    0 -> stream
-    _ ->
-      bitstream.append_bits(stream, mode_indicator_value(selected_mode), bits)
   }
 }
 
@@ -452,12 +395,12 @@ fn pad_to_capacity(
     // The final data codeword of M1, M3-L and M3-M holds only 4 bits, and
     // ISO/IEC 18004 7.4.10 pads it with 0000: alternate pad codewords fill
     // the full codewords, then the half codeword stays zero. A full 0xEC
-    // there would leave 1100 in the error correction input that the symbol
-    // never carries, so every such symbol started with one codeword error.
+    // there would put 1100 into the error correction input that the symbol
+    // never carries, and a reader would see one codeword error.
     True ->
-      pad_alternating(aligned, data_bytes_count - 1, 0)
+      bitstream.append_pad_codewords(aligned, until: data_bytes_count - 1)
       |> pad_zero(data_bytes_count)
-    False -> pad_alternating(aligned, data_bytes_count, 0)
+    False -> bitstream.append_pad_codewords(aligned, until: data_bytes_count)
   }
 }
 
@@ -465,38 +408,16 @@ fn pad_zero(
   stream: bitstream.BitStream,
   target_bytes: Int,
 ) -> bitstream.BitStream {
-  case list.length(bitstream.to_byte_list(stream)) >= target_bytes {
+  case bitstream.length_bits(stream) / 8 >= target_bytes {
     True -> stream
     False -> pad_zero(bitstream.append_byte(stream, 0), target_bytes)
-  }
-}
-
-fn pad_alternating(
-  stream: bitstream.BitStream,
-  target_bytes: Int,
-  index: Int,
-) -> bitstream.BitStream {
-  let current_bytes = list.length(bitstream.to_byte_list(stream))
-  case current_bytes >= target_bytes {
-    True -> stream
-    False -> {
-      let byte = case index % 2 == 0 {
-        True -> 0xEC
-        False -> 0x11
-      }
-      pad_alternating(
-        bitstream.append_byte(stream, byte),
-        target_bytes,
-        index + 1,
-      )
-    }
   }
 }
 
 /// Total number of full data codewords for `(version, ecc)`. Half-byte cases
 /// (M1-L, M3-L, M3-M) round up to the next byte; the half-codeword behaviour is
 /// applied during matrix placement.
-pub fn data_codewords(
+fn data_codewords(
   version: Int,
   ecc: ErrorCorrection,
 ) -> Result(Int, EncodeError) {
@@ -518,7 +439,7 @@ fn compute_ec(
 }
 
 /// M1, M3-L and M3-M end their data with a 4-bit codeword.
-pub fn has_half_codeword(version: Int, ecc: ErrorCorrection) -> Bool {
+fn has_half_codeword(version: Int, ecc: ErrorCorrection) -> Bool {
   case version, ecc {
     1, Low -> True
     3, Low -> True
@@ -530,63 +451,50 @@ pub fn has_half_codeword(version: Int, ecc: ErrorCorrection) -> Bool {
 /// The `(row, col)` of every data module of M`version`, in placement order.
 pub fn data_module_positions(version: Int) -> List(#(Int, Int)) {
   case symbol_size(version) {
-    Ok(size) -> data_positions(function_patterns(size), size - 1, size - 1)
+    Ok(size) ->
+      matrix.data_positions(function_patterns(size), skip_column: None)
     Error(_) -> []
   }
 }
 
 fn function_patterns(size: Int) -> matrix.Matrix {
   matrix.new(size, size)
-  |> draw_finder(size)
+  |> draw_finder
   |> draw_timing(size)
-  |> reserve_format_info(size)
+  |> reserve_format_info
 }
 
 /// The 15-bit format information of a symbol given as `module(row, col)`,
 /// in the bit order `place_format_info` writes.
 pub fn read_format(module: fn(Int, Int) -> Bool) -> Int {
   let horizontal =
-    util.range(0, 7)
-    |> list.fold(0, fn(acc, index) {
-      acc + bool_value(module(8, index + 1)) * power_of_two(14 - index)
+    int.range(from: 0, to: 8, with: 0, run: fn(acc, index) {
+      acc
+      + util.bool_to_int(module(8, index + 1))
+      * int.bitwise_shift_left(1, 14 - index)
     })
-  util.range(0, 6)
-  |> list.fold(horizontal, fn(acc, index) {
-    acc + bool_value(module(7 - index, 8)) * power_of_two(6 - index)
+  int.range(from: 0, to: 7, with: horizontal, run: fn(acc, index) {
+    acc
+    + util.bool_to_int(module(7 - index, 8))
+    * int.bitwise_shift_left(1, 6 - index)
   })
 }
 
 /// The version, error correction level and mask whose format information is
 /// within 3 bits of `bits`.
 pub fn decode_format(bits: Int) -> Result(#(Int, ErrorCorrection, Int), Nil) {
-  let symbols = [
-    #(1, Low),
-    #(2, Low),
-    #(2, Medium),
-    #(3, Low),
-    #(3, Medium),
-    #(4, Low),
-    #(4, Medium),
-    #(4, Quartile),
-  ]
   let candidates =
-    list.index_map(symbols, fn(symbol, number) {
-      list.map([0, 1, 2, 3], fn(mask) {
+    list.index_map(symbols, fn(entry, number) {
+      let #(version, ecc, _, _) = entry
+      list.map([0, 1, 2, 3], fn(mask_number) {
         #(
-          #(symbol.0, symbol.1, mask),
-          util.at_or(format_info_table, number * 4 + mask, default: -1),
+          #(version, ecc, mask_number),
+          util.at_or(format_info_table, number * 4 + mask_number, default: -1),
         )
       })
     })
     |> list.flatten
   format_info.nearest(candidates, [bits], 3)
-}
-
-fn bool_value(value: Bool) -> Int {
-  case value {
-    True -> 1
-    False -> 0
-  }
 }
 
 fn build_matrix(
@@ -606,11 +514,11 @@ fn build_matrix(
   }
 }
 
-fn draw_finder(target: matrix.Matrix, _size: Int) -> matrix.Matrix {
-  util.range(0, finder_size)
-  |> list.fold(target, fn(acc, row) {
-    util.range(0, finder_size)
-    |> list.fold(acc, fn(acc2, col) { draw_finder_module(acc2, row, col) })
+fn draw_finder(target: matrix.Matrix) -> matrix.Matrix {
+  int.range(from: 0, to: finder_size + 1, with: target, run: fn(acc, row) {
+    int.range(from: 0, to: finder_size + 1, with: acc, run: fn(acc2, col) {
+      draw_finder_module(acc2, row, col)
+    })
   })
 }
 
@@ -632,8 +540,7 @@ fn draw_finder_module(
 }
 
 fn draw_timing(target: matrix.Matrix, size: Int) -> matrix.Matrix {
-  util.range(finder_size + 1, size - 1)
-  |> list.fold(target, fn(acc, index) {
+  int.range(from: finder_size + 1, to: size, with: target, run: fn(acc, index) {
     let dark = index % 2 == 0
     acc
     |> matrix.set(0, index, dark, reserved: True)
@@ -641,14 +548,12 @@ fn draw_timing(target: matrix.Matrix, size: Int) -> matrix.Matrix {
   })
 }
 
-fn reserve_format_info(target: matrix.Matrix, _size: Int) -> matrix.Matrix {
+fn reserve_format_info(target: matrix.Matrix) -> matrix.Matrix {
   let horizontal =
-    util.range(1, 8)
-    |> list.fold(target, fn(acc, col) {
+    int.range(from: 1, to: 9, with: target, run: fn(acc, col) {
       matrix.set(acc, 8, col, False, reserved: True)
     })
-  util.range(1, 7)
-  |> list.fold(horizontal, fn(acc, row) {
+  int.range(from: 1, to: 8, with: horizontal, run: fn(acc, row) {
     matrix.set(acc, row, 8, False, reserved: True)
   })
 }
@@ -665,9 +570,11 @@ fn place_codewords(
     Error(_) -> 0
   }
   let bits = codewords_to_bits(codewords, data_count, half, 0, [])
-  let positions =
-    data_positions(target, matrix.width(target) - 1, matrix.height(target) - 1)
-  write_bits(target, positions, bits)
+  matrix.write_bits(
+    target,
+    matrix.data_positions(target, skip_column: None),
+    bits,
+  )
 }
 
 fn codewords_to_bits(
@@ -702,177 +609,35 @@ fn append_byte_bits(
     True -> acc
     False ->
       append_byte_bits(byte, bit_position - 1, remaining - 1, [
-        bit_at(byte, bit_position),
+        util.bit_at(byte, bit_position),
         ..acc
       ])
   }
 }
 
-fn bit_at(value: Int, index: Int) -> Bool {
-  value / power_of_two(index) % 2 == 1
-}
-
-fn power_of_two(index: Int) -> Int {
-  case index <= 0 {
-    True -> 1
-    False -> 2 * power_of_two(index - 1)
-  }
-}
-
-fn data_positions(
-  target: matrix.Matrix,
-  col: Int,
-  row: Int,
-) -> List(#(Int, Int)) {
-  do_data_positions(target, col, row, -1, [])
-}
-
-fn do_data_positions(
-  target: matrix.Matrix,
-  col: Int,
-  row: Int,
-  inc: Int,
-  acc: List(#(Int, Int)),
-) -> List(#(Int, Int)) {
-  case col <= 0 {
-    True -> list.reverse(acc)
-    False -> {
-      let #(next_acc, last_row, next_inc) =
-        scan_column_pair(target, col, row, inc, acc)
-      do_data_positions(target, col - 2, last_row, next_inc, next_acc)
-    }
-  }
-}
-
-fn scan_column_pair(
-  target: matrix.Matrix,
-  col: Int,
-  row: Int,
-  inc: Int,
-  acc: List(#(Int, Int)),
-) -> #(List(#(Int, Int)), Int, Int) {
-  let with_right = maybe_take(target, row, col, acc)
-  let with_both = maybe_take(target, row, col - 1, with_right)
-  let next_row = row + inc
-  case next_row < 0 || next_row >= matrix.height(target) {
-    True -> #(with_both, row, 0 - inc)
-    False -> scan_column_pair(target, col, next_row, inc, with_both)
-  }
-}
-
-fn maybe_take(
-  target: matrix.Matrix,
-  row: Int,
-  col: Int,
-  acc: List(#(Int, Int)),
-) -> List(#(Int, Int)) {
-  case col < 0 {
-    True -> acc
-    False ->
-      case matrix.is_reserved(target, row, col) {
-        True -> acc
-        False -> [#(row, col), ..acc]
-      }
-  }
-}
-
-fn write_bits(
-  target: matrix.Matrix,
-  positions: List(#(Int, Int)),
-  bits: List(Bool),
-) -> matrix.Matrix {
-  case positions, bits {
-    [#(row, col), ..rest_positions], [bit, ..rest_bits] ->
-      write_bits(
-        matrix.set(target, row, col, bit, reserved: False),
-        rest_positions,
-        rest_bits,
-      )
-    _, _ -> target
-  }
-}
-
+/// Try the four Micro QR masks and keep the one with the highest Annex K
+/// score; the lowest mask number wins a tie.
 fn choose_best_mask(
   target: matrix.Matrix,
   version: Int,
   ecc: ErrorCorrection,
   size: Int,
 ) -> #(Int, matrix.Matrix) {
-  do_choose_mask(target, version, ecc, size, 0, 0, target, -1)
-}
-
-fn do_choose_mask(
-  target: matrix.Matrix,
-  version: Int,
-  ecc: ErrorCorrection,
-  size: Int,
-  candidate: Int,
-  best_mask: Int,
-  best_matrix: matrix.Matrix,
-  best_score: Int,
-) -> #(Int, matrix.Matrix) {
-  case candidate > 3 {
-    True -> #(best_mask, best_matrix)
-    False -> {
-      let with_data = apply_mask(target, candidate)
-      let placed = place_format_info(with_data, version, ecc, candidate)
-      let score = micro_penalty(placed, size)
-      case best_score < 0 || score > best_score {
-        True ->
-          do_choose_mask(
-            target,
-            version,
-            ecc,
-            size,
-            candidate + 1,
-            candidate,
-            placed,
-            score,
-          )
-        False ->
-          do_choose_mask(
-            target,
-            version,
-            ecc,
-            size,
-            candidate + 1,
-            best_mask,
-            best_matrix,
-            best_score,
-          )
-      }
-    }
+  let evaluate = fn(candidate) {
+    let placed =
+      mask.apply_with(target, fn(row, col) { mask_at(candidate, row, col) })
+      |> place_format_info(version, ecc, candidate)
+    #(candidate, placed, micro_penalty(placed, size))
   }
-}
-
-fn apply_mask(target: matrix.Matrix, mask: Int) -> matrix.Matrix {
-  do_apply_mask(target, mask, 0, 0)
-}
-
-fn do_apply_mask(
-  target: matrix.Matrix,
-  mask: Int,
-  row: Int,
-  col: Int,
-) -> matrix.Matrix {
-  case row >= matrix.height(target) {
-    True -> target
-    False ->
-      case col >= matrix.width(target) {
-        True -> do_apply_mask(target, mask, row + 1, 0)
-        False ->
-          case matrix.is_reserved(target, row, col) {
-            True -> do_apply_mask(target, mask, row, col + 1)
-            False ->
-              do_apply_mask(
-                matrix.xor(target, row, col, mask_at(mask, row, col)),
-                mask,
-                row,
-                col + 1,
-              )
-          }
+  let #(best_mask, best_matrix, _) =
+    list.fold([1, 2, 3], evaluate(0), fn(best, candidate) {
+      let next = evaluate(candidate)
+      case next.2 > best.2 {
+        True -> next
+        False -> best
       }
-  }
+    })
+  #(best_mask, best_matrix)
 }
 
 /// Micro QR data mask `mask` (0..3) at `(row, col)`.
@@ -949,71 +714,27 @@ fn place_format_info(
 }
 
 fn place_horizontal_format(target: matrix.Matrix, bits: Int) -> matrix.Matrix {
-  util.range(0, 7)
-  |> list.fold(target, fn(acc, index) {
+  int.range(from: 0, to: 8, with: target, run: fn(acc, index) {
     let col = index + 1
-    let dark = bit_at(bits, 14 - index)
+    let dark = util.bit_at(bits, 14 - index)
     matrix.set(acc, 8, col, dark, reserved: True)
   })
 }
 
 fn place_vertical_format(target: matrix.Matrix, bits: Int) -> matrix.Matrix {
-  util.range(0, 6)
-  |> list.fold(target, fn(acc, index) {
+  int.range(from: 0, to: 7, with: target, run: fn(acc, index) {
     let row = 7 - index
-    let dark = bit_at(bits, 6 - index)
+    let dark = util.bit_at(bits, 6 - index)
     matrix.set(acc, row, 8, dark, reserved: True)
   })
 }
 
 fn format_bits(version: Int, ecc: ErrorCorrection, mask: Int) -> Int {
-  case symbol_number(version, ecc) {
-    Ok(number) -> {
+  case symbol(version, ecc) {
+    Ok(#(number, _, _)) -> {
       let index = number * 4 + mask
       util.at_or(format_info_table, index, default: format_xor_mask)
     }
     Error(_) -> format_xor_mask
-  }
-}
-
-fn symbol_number(
-  version: Int,
-  ecc: ErrorCorrection,
-) -> Result(Int, EncodeError) {
-  case version, ecc {
-    1, Low -> Ok(0)
-    2, Low -> Ok(1)
-    2, Medium -> Ok(2)
-    3, Low -> Ok(3)
-    3, Medium -> Ok(4)
-    4, Low -> Ok(5)
-    4, Medium -> Ok(6)
-    4, Quartile -> Ok(7)
-    _, _ ->
-      Error(IncompatibleOptions(
-        "Micro QR M"
-        <> int_to_str(version)
-        <> " does not support the requested error correction level",
-      ))
-  }
-}
-
-fn int_to_str(value: Int) -> String {
-  case value {
-    1 -> "1"
-    2 -> "2"
-    3 -> "3"
-    4 -> "4"
-    _ -> "?"
-  }
-}
-
-fn result_try(
-  result: Result(a, EncodeError),
-  callback: fn(a) -> Result(b, EncodeError),
-) -> Result(b, EncodeError) {
-  case result {
-    Ok(value) -> callback(value)
-    Error(error) -> Error(error)
   }
 }

@@ -1,16 +1,28 @@
 //// Standard QR data masks and penalty scoring.
 
+import gleam/int
 import gleam/list
 import qrkit/internal/matrix
 import qrkit/internal/util
 
+/// Apply Standard QR data mask `mask` (0..7) to every module that is not
+/// reserved.
 pub fn apply(mask: Int, to target: matrix.Matrix) -> matrix.Matrix {
-  do_apply(mask, target, 0, 0)
+  apply_with(target, fn(row, col) { mask_at(mask, row, col) })
 }
 
-fn do_apply(
-  mask: Int,
+/// Flip every module that is not reserved and for which `flip(row, col)`
+/// holds. Micro QR and rMQR pass their own mask patterns.
+pub fn apply_with(
   target: matrix.Matrix,
+  flip: fn(Int, Int) -> Bool,
+) -> matrix.Matrix {
+  apply_loop(target, flip, 0, 0)
+}
+
+fn apply_loop(
+  target: matrix.Matrix,
+  flip: fn(Int, Int) -> Bool,
   row: Int,
   col: Int,
 ) -> matrix.Matrix {
@@ -18,14 +30,14 @@ fn do_apply(
     True -> target
     False ->
       case col >= matrix.width(target) {
-        True -> do_apply(mask, target, row + 1, 0)
+        True -> apply_loop(target, flip, row + 1, 0)
         False ->
           case matrix.is_reserved(target, row, col) {
-            True -> do_apply(mask, target, row, col + 1)
+            True -> apply_loop(target, flip, row, col + 1)
             False ->
-              do_apply(
-                mask,
-                matrix.xor(target, row, col, mask_at(mask, row, col)),
+              apply_loop(
+                matrix.xor(target, row, col, flip(row, col)),
+                flip,
                 row,
                 col + 1,
               )
@@ -34,55 +46,24 @@ fn do_apply(
   }
 }
 
-pub fn best_mask(target: matrix.Matrix) -> Int {
-  do_best_mask(target, 0, 0, 0)
-}
-
-fn do_best_mask(
-  target: matrix.Matrix,
-  mask: Int,
-  best_mask: Int,
-  best_penalty: Int,
-) -> Int {
-  case mask > 7 {
-    True -> best_mask
-    False -> {
-      let penalty = penalty_total(apply(mask, to: target))
-      case mask == 0 || penalty < best_penalty {
-        True -> do_best_mask(target, mask + 1, mask, penalty)
-        False -> do_best_mask(target, mask + 1, best_mask, best_penalty)
-      }
-    }
-  }
-}
-
+/// The ISO/IEC 18004 §7.8.3 penalty of a square Standard QR symbol. The
+/// rows and columns are read once and shared by the first three rules.
 pub fn penalty_total(target: matrix.Matrix) -> Int {
-  penalty_n1(target)
-  + penalty_n2(target)
-  + penalty_n3(target)
+  let rows = matrix.rows(target)
+  let columns = list.transpose(rows)
+  penalty_n1(rows, columns)
+  + penalty_n2(rows)
+  + penalty_n3(rows, columns)
   + penalty_n4(target)
 }
 
-pub fn penalty_n1(target: matrix.Matrix) -> Int {
-  penalty_runs(target, 0, 0, 0)
+/// Runs of five or more same-coloured modules in a row or column.
+fn penalty_n1(rows: List(List(Bool)), columns: List(List(Bool))) -> Int {
+  sum_lines(rows, line_penalty) + sum_lines(columns, line_penalty)
 }
 
-fn penalty_runs(
-  target: matrix.Matrix,
-  row: Int,
-  col_points: Int,
-  row_points: Int,
-) -> Int {
-  case row >= matrix.height(target) {
-    True -> col_points + row_points
-    False ->
-      penalty_runs(
-        target,
-        row + 1,
-        col_points + line_penalty(column_values(target, row)),
-        row_points + line_penalty(row_values(target, row)),
-      )
-  }
+fn sum_lines(lines: List(List(Bool)), score: fn(List(Bool)) -> Int) -> Int {
+  list.fold(lines, 0, fn(acc, line) { acc + score(line) })
 }
 
 fn line_penalty(values: List(Bool)) -> Int {
@@ -116,75 +97,64 @@ fn run_penalty(run_length: Int) -> Int {
   }
 }
 
-pub fn penalty_n2(target: matrix.Matrix) -> Int {
-  do_penalty_n2(target, 0, 0, 0)
+/// 2x2 blocks of one colour.
+fn penalty_n2(rows: List(List(Bool))) -> Int {
+  penalty_n2_loop(rows, 0) * 3
 }
 
-fn do_penalty_n2(target: matrix.Matrix, row: Int, col: Int, acc: Int) -> Int {
-  case row >= matrix.height(target) - 1 {
-    True -> acc * 3
-    False ->
-      case col >= matrix.width(target) - 1 {
-        True -> do_penalty_n2(target, row + 1, 0, acc)
-        False -> {
-          let dark_total =
-            bool_to_int(matrix.get(target, row, col))
-            + bool_to_int(matrix.get(target, row, col + 1))
-            + bool_to_int(matrix.get(target, row + 1, col))
-            + bool_to_int(matrix.get(target, row + 1, col + 1))
-          let next_acc = case dark_total == 0 || dark_total == 4 {
-            True -> acc + 1
-            False -> acc
-          }
-          do_penalty_n2(target, row, col + 1, next_acc)
-        }
-      }
+fn penalty_n2_loop(rows: List(List(Bool)), acc: Int) -> Int {
+  case rows {
+    [top, bottom, ..rest] ->
+      penalty_n2_loop([bottom, ..rest], same_colour_blocks(top, bottom, acc))
+    _ -> acc
   }
 }
 
-pub fn penalty_n3(target: matrix.Matrix) -> Int {
-  let rows =
-    util.range(0, matrix.height(target) - 1)
-    |> list.fold(0, fn(acc, row) {
-      acc + finder_like_penalty(row_values(target, row))
-    })
-  let columns =
-    util.range(0, matrix.width(target) - 1)
-    |> list.fold(0, fn(acc, col) {
-      acc + finder_like_penalty(column_values(target, col))
-    })
-  { rows + columns } * 40
+fn same_colour_blocks(top: List(Bool), bottom: List(Bool), acc: Int) -> Int {
+  case top, bottom {
+    [a, b, ..top_rest], [c, d, ..bottom_rest] -> {
+      let next_acc = case a == b && b == c && c == d {
+        True -> acc + 1
+        False -> acc
+      }
+      same_colour_blocks([b, ..top_rest], [d, ..bottom_rest], next_acc)
+    }
+    _, _ -> acc
+  }
 }
 
-fn finder_like_penalty(values: List(Bool)) -> Int {
+/// The 1:1:3:1:1 finder-like pattern with four light modules on one side,
+/// found with an 11-module window that slides along each row and column.
+fn penalty_n3(rows: List(List(Bool)), columns: List(List(Bool))) -> Int {
+  { sum_lines(rows, finder_like_count) + sum_lines(columns, finder_like_count) }
+  * 40
+}
+
+fn finder_like_count(values: List(Bool)) -> Int {
+  finder_like_loop(values, 0, 0, 0)
+}
+
+fn finder_like_loop(
+  values: List(Bool),
+  window: Int,
+  seen: Int,
+  count: Int,
+) -> Int {
   case values {
-    [] -> 0
-    _ ->
-      case list.length(values) < 11 {
-        True -> 0
-        False -> {
-          let bits = take_bits(values, 11, 0)
-          let rest = list.drop(values, 1)
-          let points = case bits == 0x5D0 || bits == 0x05D {
-            True -> 1
-            False -> 0
-          }
-          points + finder_like_penalty(rest)
-        }
+    [] -> count
+    [value, ..rest] -> {
+      let window = int.bitwise_and(window * 2 + util.bool_to_int(value), 0x7FF)
+      let seen = seen + 1
+      let count = case seen >= 11 && { window == 0x5D0 || window == 0x05D } {
+        True -> count + 1
+        False -> count
       }
+      finder_like_loop(rest, window, seen, count)
+    }
   }
 }
 
-fn take_bits(values: List(Bool), count: Int, acc: Int) -> Int {
-  case values, count {
-    _, 0 -> acc
-    [value, ..rest], _ ->
-      take_bits(rest, count - 1, acc * 2 + bool_to_int(value))
-    [], _ -> acc
-  }
-}
-
-pub fn penalty_n4(target: matrix.Matrix) -> Int {
+fn penalty_n4(target: matrix.Matrix) -> Int {
   let dark = matrix.dark_count(target)
   let total = matrix.total_cells(target)
   let percentage = dark * 100 / total
@@ -207,22 +177,5 @@ pub fn mask_at(mask: Int, row: Int, col: Int) -> Bool {
     5 -> { row * col % 2 + row * col % 3 } == 0
     6 -> { row * col % 2 + row * col % 3 } % 2 == 0
     _ -> { row * col % 3 + { row + col } % 2 } % 2 == 0
-  }
-}
-
-fn row_values(target: matrix.Matrix, row: Int) -> List(Bool) {
-  util.range(0, matrix.width(target) - 1)
-  |> list.map(fn(col) { matrix.get(target, row, col) })
-}
-
-fn column_values(target: matrix.Matrix, col: Int) -> List(Bool) {
-  util.range(0, matrix.height(target) - 1)
-  |> list.map(fn(row) { matrix.get(target, row, col) })
-}
-
-fn bool_to_int(value: Bool) -> Int {
-  case value {
-    True -> 1
-    False -> 0
   }
 }

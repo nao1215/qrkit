@@ -62,6 +62,16 @@ pub fn reports_version_and_mask_test() -> Nil {
   decode.mask(decoded) |> should.equal(qrkit.mask(qr))
 }
 
+pub fn reads_a_full_version_40_numeric_symbol_test() -> Nil {
+  // One Numeric segment of 7089 digits: reading it must not grow the
+  // JavaScript stack with the segment length.
+  let digits = string.repeat("7", 7089)
+  let assert Ok(qr) =
+    qrkit.new(digits) |> qrkit.with_ecc(types.Low) |> qrkit.build
+  let assert Ok(decoded) = decode.from_rows(qrkit.rows(qr))
+  decode.text(decoded) |> should.equal(digits)
+}
+
 pub fn reads_the_eci_designator_test() -> Nil {
   let assert Ok(qr) = qrkit.new("Grüße") |> qrkit.with_eci(26) |> qrkit.build
   let assert Ok(decoded) = decode.from_rows(qrkit.rows(qr))

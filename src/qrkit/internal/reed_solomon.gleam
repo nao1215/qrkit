@@ -1,29 +1,92 @@
 //// Reed-Solomon encoder for QR Code codewords.
 
-import gleam/bool
 import gleam/int
 import gleam/list
 import qrkit/internal/util
 
-/// Create a generator polynomial for the requested error-correction degree.
-pub fn generator_polynomial(degree: Int) -> List(Int) {
-  do_generator_polynomial(degree, [1])
-}
+/// alpha^i for i in 0..255 in GF(2^8) with the primitive polynomial `0x11D`
+/// (alpha = 2, and alpha^255 = alpha^0).
+const exp_table: BitArray = <<
+  1, 2, 4, 8, 16, 32, 64, 128, 29, 58, 116, 232, 205, 135, 19, 38, 76, 152, 45,
+  90, 180, 117, 234, 201, 143, 3, 6, 12, 24, 48, 96, 192, 157, 39, 78, 156, 37,
+  74, 148, 53, 106, 212, 181, 119, 238, 193, 159, 35, 70, 140, 5, 10, 20, 40, 80,
+  160, 93, 186, 105, 210, 185, 111, 222, 161, 95, 190, 97, 194, 153, 47, 94, 188,
+  101, 202, 137, 15, 30, 60, 120, 240, 253, 231, 211, 187, 107, 214, 177, 127,
+  254, 225, 223, 163, 91, 182, 113, 226, 217, 175, 67, 134, 17, 34, 68, 136, 13,
+  26, 52, 104, 208, 189, 103, 206, 129, 31, 62, 124, 248, 237, 199, 147, 59, 118,
+  236, 197, 151, 51, 102, 204, 133, 23, 46, 92, 184, 109, 218, 169, 79, 158, 33,
+  66, 132, 21, 42, 84, 168, 77, 154, 41, 82, 164, 85, 170, 73, 146, 57, 114, 228,
+  213, 183, 115, 230, 209, 191, 99, 198, 145, 63, 126, 252, 229, 215, 179, 123,
+  246, 241, 255, 227, 219, 171, 75, 150, 49, 98, 196, 149, 55, 110, 220, 165, 87,
+  174, 65, 130, 25, 50, 100, 200, 141, 7, 14, 28, 56, 112, 224, 221, 167, 83,
+  166, 81, 162, 89, 178, 121, 242, 249, 239, 195, 155, 43, 86, 172, 69, 138, 9,
+  18, 36, 72, 144, 61, 122, 244, 245, 247, 243, 251, 235, 203, 139, 11, 22, 44,
+  88, 176, 125, 250, 233, 207, 131, 27, 54, 108, 216, 173, 71, 142, 1,
+>>
 
-fn do_generator_polynomial(degree: Int, polynomial: List(Int)) -> List(Int) {
-  use <- bool.guard(when: degree <= 0, return: polynomial)
-  let exponent = list.length(polynomial) - 1
-  let factor = [1, gf_exp(exponent)]
-  do_generator_polynomial(degree - 1, poly_multiply(polynomial, factor))
+/// log_alpha(v) for v in 1..255; entry 0 is unused.
+const log_table: BitArray = <<
+  0, 0, 1, 25, 2, 50, 26, 198, 3, 223, 51, 238, 27, 104, 199, 75, 4, 100, 224,
+  14, 52, 141, 239, 129, 28, 193, 105, 248, 200, 8, 76, 113, 5, 138, 101, 47,
+  225, 36, 15, 33, 53, 147, 142, 218, 240, 18, 130, 69, 29, 181, 194, 125, 106,
+  39, 249, 185, 201, 154, 9, 120, 77, 228, 114, 166, 6, 191, 139, 98, 102, 221,
+  48, 253, 226, 152, 37, 179, 16, 145, 34, 136, 54, 208, 148, 206, 143, 150, 219,
+  189, 241, 210, 19, 92, 131, 56, 70, 64, 30, 66, 182, 163, 195, 72, 126, 110,
+  107, 58, 40, 84, 250, 133, 186, 61, 202, 94, 155, 159, 10, 21, 121, 43, 78,
+  212, 229, 172, 115, 243, 167, 87, 7, 112, 192, 247, 140, 128, 99, 13, 103, 74,
+  222, 237, 49, 197, 254, 24, 227, 165, 153, 119, 38, 184, 180, 124, 17, 68, 146,
+  217, 35, 32, 137, 46, 55, 63, 209, 91, 149, 188, 207, 205, 144, 135, 151, 178,
+  220, 252, 190, 97, 242, 86, 211, 171, 20, 42, 93, 158, 132, 60, 57, 83, 71,
+  109, 65, 162, 31, 45, 67, 216, 183, 123, 164, 118, 196, 23, 73, 236, 127, 12,
+  111, 246, 108, 161, 59, 82, 41, 157, 85, 170, 251, 96, 134, 177, 187, 204, 62,
+  90, 203, 89, 95, 176, 156, 169, 160, 81, 11, 245, 22, 235, 122, 117, 44, 215,
+  79, 174, 213, 233, 230, 231, 173, 232, 116, 214, 244, 234, 168, 80, 88, 175,
+>>
+
+/// The generator polynomial (x - alpha^0) .. (x - alpha^(degree - 1)),
+/// highest-degree coefficient first.
+fn generator_polynomial(degree: Int) -> List(Int) {
+  int.range(from: 0, to: degree, with: [1], run: fn(polynomial, i) {
+    // polynomial * (x + alpha^i): each coefficient plus alpha^i times the
+    // next higher one.
+    let root = gf_exp(i)
+    list.map2(list.append(polynomial, [0]), [0, ..polynomial], fn(own, higher) {
+      int.bitwise_exclusive_or(own, gf_multiply(higher, root))
+    })
+  })
 }
 
 /// Encode `data` and return the error-correction codewords.
 pub fn encode(data: List(Int), degree: Int) -> List(Int) {
-  let generator = generator_polynomial(degree)
-  let padded = list.append(data, util.repeat(0, degree))
-  let remainder = poly_mod(padded, generator)
-  let padding = util.repeat(0, degree - list.length(remainder))
-  list.append(padding, remainder)
+  remainder(data, generator_polynomial(degree))
+}
+
+/// The remainder of `data * x^degree` divided by `generator`, which is
+/// monic of degree `degree`: the error-correction codewords, computed one
+/// data codeword at a time as a shift register.
+fn remainder(data: List(Int), generator: List(Int)) -> List(Int) {
+  case generator {
+    [] -> []
+    [_, ..tail] ->
+      list.fold(data, list.repeat(0, list.length(tail)), fn(register, byte) {
+        case register {
+          [] -> []
+          [first, ..rest] -> {
+            let shifted = list.append(rest, [0])
+            case int.bitwise_exclusive_or(byte, first) {
+              0 -> shifted
+              factor ->
+                list.map2(shifted, tail, fn(value, coefficient) {
+                  int.bitwise_exclusive_or(
+                    value,
+                    gf_multiply(coefficient, factor),
+                  )
+                })
+            }
+          }
+        }
+      })
+  }
 }
 
 /// Split `data` into `blocks` error-correction blocks, add each block's
@@ -54,7 +117,8 @@ pub fn encode_interleaved(
       data_codewords_in_group1 + 1,
       [],
     )
-  let ec_blocks = list.map(data_blocks, fn(block) { encode(block, ec_count) })
+  let generator = generator_polynomial(ec_count)
+  let ec_blocks = list.map(data_blocks, remainder(_, generator))
   list.append(interleave_lists(data_blocks), interleave_lists(ec_blocks))
 }
 
@@ -93,15 +157,9 @@ fn split_into_blocks(
   }
 }
 
+/// Read `blocks` column by column, skipping blocks that are exhausted.
 fn interleave_lists(blocks: List(List(Int))) -> List(Int) {
-  let width =
-    list.fold(blocks, 0, fn(widest, block) {
-      int.max(widest, list.length(block))
-    })
-  util.range(0, width - 1)
-  |> list.flat_map(fn(index) {
-    list.filter_map(blocks, fn(block) { util.at(block, index) })
-  })
+  list.transpose(blocks) |> list.flatten
 }
 
 /// Undo `encode_interleaved`: split the codewords read from a symbol into its
@@ -132,15 +190,16 @@ pub fn deinterleave(
 fn distribute(codewords: List(Int), sizes: List(Int)) -> List(List(Int)) {
   let widest = list.fold(sizes, 0, int.max)
   let owners =
-    util.range(0, widest - 1)
-    |> list.flat_map(fn(column) {
-      list.index_map(sizes, fn(size, block) { #(block, column < size) })
-      |> list.filter_map(fn(slot) {
-        case slot.1 {
-          True -> Ok(slot.0)
-          False -> Error(Nil)
-        }
-      })
+    int.range(from: widest - 1, to: -1, with: [], run: fn(acc, column) {
+      let owners_in_column =
+        list.index_map(sizes, fn(size, block) { #(block, column < size) })
+        |> list.filter_map(fn(slot) {
+          case slot.1 {
+            True -> Ok(slot.0)
+            False -> Error(Nil)
+          }
+        })
+      list.append(owners_in_column, acc)
     })
   let tagged = list.zip(owners, codewords)
   list.index_map(sizes, fn(_, block) {
@@ -170,9 +229,13 @@ pub fn correct(
       let errors = list.length(locator) - 1
       let length = list.length(block)
       let positions =
-        util.range(0, length - 1)
-        |> list.filter(fn(index) {
-          poly_eval_low(locator, gf_exp(255 - { length - 1 - index })) == 0
+        int.range(from: length - 1, to: -1, with: [], run: fn(acc, index) {
+          case
+            poly_eval_low(locator, gf_exp(255 - { length - 1 - index })) == 0
+          {
+            True -> [index, ..acc]
+            False -> acc
+          }
         })
       case errors * 2 > ec_count || list.length(positions) != errors {
         True -> Error(Nil)
@@ -209,12 +272,13 @@ pub fn correct(
 /// S_i = r(alpha^i) for i in 0 .. ec_count - 1, reading the block as a
 /// polynomial with its first codeword as the highest-degree coefficient.
 fn syndromes(block: List(Int), ec_count: Int) -> List(Int) {
-  util.range(0, ec_count - 1)
-  |> list.map(fn(power) {
+  int.range(from: ec_count - 1, to: -1, with: [], run: fn(acc, power) {
     let root = gf_exp(power)
-    list.fold(block, 0, fn(acc, codeword) {
-      int.bitwise_exclusive_or(gf_multiply(acc, root), codeword)
-    })
+    let syndrome =
+      list.fold(block, 0, fn(value, codeword) {
+        int.bitwise_exclusive_or(gf_multiply(value, root), codeword)
+      })
+    [syndrome, ..acc]
   })
 }
 
@@ -224,8 +288,7 @@ fn berlekamp_massey(syndromes: List(Int)) -> List(Int) {
     list.index_fold(syndromes, #([1], [1], 0, 1, 1), fn(state, _, n) {
       let #(current, previous, length, shift, last_discrepancy) = state
       let discrepancy =
-        util.range(0, length)
-        |> list.fold(0, fn(acc, i) {
+        int.range(from: 0, to: length + 1, with: 0, run: fn(acc, i) {
           int.bitwise_exclusive_or(
             acc,
             gf_multiply(
@@ -299,154 +362,36 @@ fn formal_derivative(poly: List(Int)) -> List(Int) {
 }
 
 fn gf_inverse(value: Int) -> Int {
-  // value^254 = value^-1 in GF(2^8).
-  gf_power(value, 254, 1)
-}
-
-fn gf_power(base: Int, exponent: Int, acc: Int) -> Int {
-  case exponent {
-    0 -> acc
-    _ -> {
-      let next_acc = case exponent % 2 == 1 {
-        True -> gf_multiply(acc, base)
-        False -> acc
-      }
-      gf_power(gf_multiply(base, base), exponent / 2, next_acc)
-    }
+  case value {
+    0 -> 0
+    _ -> gf_exp(255 - table_at(log_table, value))
   }
 }
 
 /// Multiply two field elements in GF(2^8) with primitive polynomial `0x11D`.
-pub fn gf_multiply(a: Int, b: Int) -> Int {
-  gf_multiply_loop(a, b, 0)
-}
-
-pub fn gf_exp(exponent: Int) -> Int {
-  gf_exp_loop(normalise_exponent(exponent), 1)
-}
-
-fn normalise_exponent(exponent: Int) -> Int {
-  case exponent < 0 {
-    True -> normalise_exponent(exponent + 255)
+fn gf_multiply(a: Int, b: Int) -> Int {
+  case a == 0 || b == 0 {
+    True -> 0
     False ->
-      case exponent >= 255 {
-        True -> normalise_exponent(exponent - 255)
-        False -> exponent
-      }
-  }
-}
-
-fn gf_exp_loop(exponent: Int, value: Int) -> Int {
-  use <- bool.guard(when: exponent <= 0, return: value)
-  let shifted = int.bitwise_shift_left(value, 1)
-  let reduced = case int.bitwise_and(shifted, 0x100) != 0 {
-    True -> int.bitwise_exclusive_or(shifted, 0x11D)
-    False -> shifted
-  }
-  gf_exp_loop(exponent - 1, int.bitwise_and(reduced, 0xFF))
-}
-
-fn gf_multiply_loop(a: Int, b: Int, acc: Int) -> Int {
-  use <- bool.guard(when: b == 0, return: acc)
-  let next_acc = case int.bitwise_and(b, 1) == 1 {
-    True -> int.bitwise_exclusive_or(acc, a)
-    False -> acc
-  }
-  let shifted = int.bitwise_shift_left(a, 1)
-  let next_a = case int.bitwise_and(shifted, 0x100) != 0 {
-    True -> int.bitwise_exclusive_or(shifted, 0x11D)
-    False -> shifted
-  }
-  gf_multiply_loop(
-    int.bitwise_and(next_a, 0xFF),
-    int.bitwise_shift_right(b, 1),
-    next_acc,
-  )
-}
-
-fn poly_multiply(left: List(Int), right: List(Int)) -> List(Int) {
-  let size = list.length(left) + list.length(right) - 1
-  do_poly_multiply(left, right, 0, util.repeat(0, size))
-}
-
-fn do_poly_multiply(
-  left: List(Int),
-  right: List(Int),
-  left_index: Int,
-  acc: List(Int),
-) -> List(Int) {
-  case left {
-    [] -> acc
-    [coefficient, ..rest] -> {
-      let next = do_poly_row(right, coefficient, left_index, 0, acc)
-      do_poly_multiply(rest, right, left_index + 1, next)
-    }
-  }
-}
-
-fn do_poly_row(
-  right: List(Int),
-  left_coefficient: Int,
-  left_index: Int,
-  right_index: Int,
-  acc: List(Int),
-) -> List(Int) {
-  case right {
-    [] -> acc
-    [coefficient, ..rest] -> {
-      let index = left_index + right_index
-      let previous = util.at_or(acc, index, default: 0)
-      let value =
-        int.bitwise_exclusive_or(
-          previous,
-          gf_multiply(left_coefficient, coefficient),
-        )
-      do_poly_row(
-        rest,
-        left_coefficient,
-        left_index,
-        right_index + 1,
-        util.replace_at(acc, index, with: value),
+      table_at(
+        exp_table,
+        { table_at(log_table, a) + table_at(log_table, b) } % 255,
       )
-    }
   }
 }
 
-fn poly_mod(dividend: List(Int), divisor: List(Int)) -> List(Int) {
-  case list.length(dividend) < list.length(divisor) {
-    True -> trim_leading_zeros(dividend)
-    False -> {
-      case dividend {
-        [] -> []
-        [lead, ..] -> {
-          let reduced = do_poly_mod_step(dividend, divisor, lead, 0, [])
-          poly_mod(trim_leading_zeros(reduced), divisor)
-        }
-      }
-    }
+/// alpha^exponent for any integer exponent.
+fn gf_exp(exponent: Int) -> Int {
+  let reduced = exponent % 255
+  case reduced < 0 {
+    True -> table_at(exp_table, reduced + 255)
+    False -> table_at(exp_table, reduced)
   }
 }
 
-fn do_poly_mod_step(
-  dividend: List(Int),
-  divisor: List(Int),
-  lead: Int,
-  index: Int,
-  acc: List(Int),
-) -> List(Int) {
-  case dividend, divisor {
-    [left, ..left_rest], [right, ..right_rest] -> {
-      let value = int.bitwise_exclusive_or(left, gf_multiply(right, lead))
-      do_poly_mod_step(left_rest, right_rest, lead, index + 1, [value, ..acc])
-    }
-    remaining, [] -> list.reverse(acc) |> list.append(remaining)
-    [], _ -> list.reverse(acc)
-  }
-}
-
-fn trim_leading_zeros(values: List(Int)) -> List(Int) {
-  case values {
-    [0, ..rest] -> trim_leading_zeros(rest)
-    _ -> values
+fn table_at(table: BitArray, index: Int) -> Int {
+  case table {
+    <<_:bytes-size(index), value, _:bytes>> -> value
+    _ -> 0
   }
 }

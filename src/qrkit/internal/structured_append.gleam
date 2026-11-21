@@ -13,21 +13,22 @@ import qrkit/error.{
   type EncodeError, DataExceedsCapacity, EmptyInput, InvalidVersion,
 }
 import qrkit/internal/bitstream
+import qrkit/internal/matrix
 import qrkit/internal/standard
 import qrkit/internal/util
 import qrkit/internal/version
 import qrkit/types.{type ErrorCorrection, Auto}
 
 /// Upper bound on the number of shards allowed by ISO/IEC 18004 §8.2.
-pub const max_symbols: Int = 16
+const max_symbols: Int = 16
 
 /// Encode the data using as few shards as possible while respecting
-/// `max_version` per shard. Returns a list of `standard.Encoded` symbols.
+/// `max_version` per shard. Returns a list of `matrix.Encoded` symbols.
 pub fn encode(
   data: String,
   max_version: Int,
   ecc: ErrorCorrection,
-) -> Result(List(standard.Encoded), EncodeError) {
+) -> Result(List(matrix.Encoded), EncodeError) {
   case data == "" {
     True -> Error(EmptyInput)
     False ->
@@ -39,7 +40,7 @@ pub fn encode(
 }
 
 /// Compute the parity byte (XOR of all UTF-8 bytes of `data`).
-pub fn parity_of(data: String) -> Int {
+fn parity_of(data: String) -> Int {
   parity_of_bits(bit_array.from_string(data), 0)
 }
 
@@ -57,12 +58,11 @@ fn find_split(
   max_version: Int,
   ecc: ErrorCorrection,
   total: Int,
-) -> Result(List(standard.Encoded), EncodeError) {
+) -> Result(List(matrix.Encoded), EncodeError) {
   case total > max_symbols {
     True -> Error(no_split_fits_error(data, max_version, ecc))
     False -> {
-      let chunks = split_string(data, total)
-      case encode_shards(chunks, data, total, max_version, ecc) {
+      case encode_shards(data, total, max_version, ecc) {
         Ok(encodes) -> Ok(encodes)
         Error(_) -> find_split(data, max_version, ecc, total + 1)
       }
@@ -79,7 +79,7 @@ const structured_append_header_bits: Int = 20
 /// capacity of 16 `max_version` symbols at `ecc`, minus the Structured Append
 /// header each shard must carry; `bits_needed` is the worst-case Byte-mode
 /// encoding of the payload (UTF-8 byte count × 8) since we don't know which
-/// mode each shard would have picked. See #22 for why `(0, 0)` was useless.
+/// mode each shard would have picked.
 fn no_split_fits_error(
   data: String,
   max_version: Int,
@@ -95,34 +95,32 @@ fn no_split_fits_error(
   DataExceedsCapacity(payload_bits, bits_available)
 }
 
+/// Encode `data` as `total` symbols. A single symbol carries no Structured
+/// Append header.
 fn encode_shards(
-  chunks: List(String),
   data: String,
   total: Int,
   max_version: Int,
   ecc: ErrorCorrection,
-) -> Result(List(standard.Encoded), EncodeError) {
+) -> Result(List(matrix.Encoded), EncodeError) {
   case total {
     1 ->
-      case chunks {
-        [chunk] ->
-          case
-            standard.encode_prefixed(
-              chunk,
-              ecc,
-              1,
-              max_version,
-              None,
-              Auto,
-              <<>>,
-            )
-          {
-            Ok(encoded) -> Ok([encoded])
-            Error(error) -> Error(error)
-          }
-        _ -> Error(EmptyInput)
+      case
+        standard.encode_prefixed(data, ecc, 1, max_version, None, Auto, <<>>)
+      {
+        Ok(encoded) -> Ok([encoded])
+        Error(error) -> Error(error)
       }
-    _ -> encode_multiple_shards(chunks, data, total, max_version, ecc, 0, [])
+    _ ->
+      encode_multiple_shards(
+        split_string(data, total),
+        data,
+        total,
+        max_version,
+        ecc,
+        0,
+        [],
+      )
   }
 }
 
@@ -133,8 +131,8 @@ fn encode_multiple_shards(
   max_version: Int,
   ecc: ErrorCorrection,
   index: Int,
-  acc: List(standard.Encoded),
-) -> Result(List(standard.Encoded), EncodeError) {
+  acc: List(matrix.Encoded),
+) -> Result(List(matrix.Encoded), EncodeError) {
   case chunks {
     [] -> Ok(list.reverse(acc))
     [chunk, ..rest] -> {

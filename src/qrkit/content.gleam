@@ -29,6 +29,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import gleam/uri
 
@@ -135,11 +136,11 @@ pub fn with_address(card: VCard, address: String) -> VCard {
 pub fn vcard_to_string(card: VCard) -> String {
   let VCard(name, phone, email, url, organization, title, address) = card
   let n_value = case name {
-    Some(n) -> escape_vcard(n)
+    Some(n) -> escape_text(n)
     None -> ";;;;"
   }
   let fn_value = case name {
-    Some(n) -> escape_vcard(n)
+    Some(n) -> escape_text(n)
     None -> ""
   }
   [
@@ -147,15 +148,15 @@ pub fn vcard_to_string(card: VCard) -> String {
     Some("VERSION:3.0"),
     Some("N:" <> n_value),
     Some("FN:" <> fn_value),
-    option_line_with("ORG", organization, escape_vcard),
-    option_line_with("TITLE", title, escape_vcard),
-    option_line_with("TEL", phone, escape_vcard),
-    option_line_with("EMAIL", email, escape_vcard),
-    option_line_with("URL", url, escape_vcard),
-    option_line_with("ADR", address, escape_vcard),
+    option_line_with("ORG", organization, escape_text),
+    option_line_with("TITLE", title, escape_text),
+    option_line_with("TEL", phone, escape_text),
+    option_line_with("EMAIL", email, escape_text),
+    option_line_with("URL", url, escape_text),
+    option_line_with("ADR", address, escape_text),
     Some("END:VCARD"),
   ]
-  |> present_lines([])
+  |> option.values
   |> list.map(fold_line)
   |> string.join(with: "\r\n")
   |> append_crlf
@@ -171,7 +172,6 @@ pub fn vcard_to_string(card: VCard) -> String {
 /// non-ASCII) are percent-encoded. The `subject` and `body` hfvalues
 /// keep the wider RFC 3986 percent-encoding the stdlib provides so
 /// `?` / `&` / `#` / space / `%` are still escaped in those fields.
-/// (#21)
 pub fn email(
   to to: String,
   subject subject: String,
@@ -180,9 +180,9 @@ pub fn email(
   "mailto:"
   <> encode_addr_spec(to)
   <> "?subject="
-  <> percent_encode(subject)
+  <> uri.percent_encode(subject)
   <> "&body="
-  <> percent_encode(body)
+  <> uri.percent_encode(body)
 }
 
 /// Build an SMS payload.
@@ -242,13 +242,12 @@ pub fn with_all_day(event: CalendarEvent, all_day: Bool) -> CalendarEvent {
 
 /// Render a calendar event as an iCalendar payload, RFC 5545
 /// conformant. Includes the required `PRODID` / `UID` / `DTSTAMP`
-/// properties (#14). In `all_day` mode `DTEND` is bumped to
+/// properties. In `all_day` mode `DTEND` is bumped to
 /// `start + 1 day` when the caller passed `end_unix == start_unix`
-/// so the resulting DATE range is non-inclusive per §3.6.1 (#16).
+/// so the resulting DATE range is non-inclusive per §3.6.1.
 /// Unix timestamps before the epoch are floor-divided so negative
-/// inputs format correctly (#9), and the year is clamped to
-/// `[1, 9999]` to preserve the 4-digit-year fixed-width format
-/// (#10).
+/// inputs format correctly, and the year is clamped to
+/// `[1, 9999]` to preserve the 4-digit-year fixed-width format.
 pub fn event_to_string(event: CalendarEvent) -> String {
   let CalendarEvent(title, start_unix, end_unix, location, description, all_day) =
     event
@@ -272,15 +271,15 @@ pub fn event_to_string(event: CalendarEvent) -> String {
     Some("BEGIN:VEVENT"),
     Some("UID:" <> uid),
     Some("DTSTAMP:" <> dtstamp),
-    Some("SUMMARY:" <> escape_ical(title)),
+    Some("SUMMARY:" <> escape_text(title)),
     Some(start_key <> ":" <> start_value),
     Some(end_key <> ":" <> end_value),
-    option_line_with("LOCATION", location, escape_ical),
-    option_line_with("DESCRIPTION", description, escape_ical),
+    option_line_with("LOCATION", location, escape_text),
+    option_line_with("DESCRIPTION", description, escape_text),
     Some("END:VEVENT"),
     Some("END:VCALENDAR"),
   ]
-  |> present_lines([])
+  |> option.values
   |> list.map(fold_line)
   |> string.join(with: "\r\n")
   |> append_crlf
@@ -306,10 +305,10 @@ fn adjust_end_for_all_day(
 }
 
 fn synthesise_uid(title: String, start_unix: Int, end_unix: Int) -> String {
-  // Deterministic UID: title hash (Erlang :phash2-compatible mix in
-  // pure Gleam) combined with the two timestamps. Stable across runs
-  // for the same input, which is what a QR-payload caller wants —
-  // scanning the same event twice should not produce a new UID.
+  // Deterministic UID: a hash of the title (see `string_hash`) combined
+  // with the two timestamps. Stable across runs for the same input, which
+  // is what a QR-payload caller wants — scanning the same event twice
+  // should not produce a new UID.
   let title_hash = string_hash(title)
   int.to_string(title_hash)
   <> "-"
@@ -329,16 +328,8 @@ fn string_hash(value: String) -> Int {
   let codepoints = string.to_utf_codepoints(value)
   list.fold(codepoints, 0, fn(acc, codepoint) {
     let byte = string.utf_codepoint_to_int(codepoint)
-    modulo(acc * 31 + byte, 2_147_483_647)
+    int.modulo(acc * 31 + byte, by: 2_147_483_647) |> result.unwrap(0)
   })
-}
-
-fn modulo(value: Int, m: Int) -> Int {
-  let r = value % m
-  case r < 0 {
-    True -> r + m
-    False -> r
-  }
 }
 
 fn wifi_security_name(security: WifiSecurity) -> String {
@@ -372,21 +363,6 @@ fn option_line_with(
     Some(value) -> Some(key <> ":" <> escape(value))
     None -> None
   }
-}
-
-fn present_lines(
-  lines: List(Option(String)),
-  acc: List(String),
-) -> List(String) {
-  case lines {
-    [] -> list.reverse(acc)
-    [Some(line), ..rest] -> present_lines(rest, [line, ..acc])
-    [None, ..rest] -> present_lines(rest, acc)
-  }
-}
-
-fn percent_encode(value: String) -> String {
-  uri.percent_encode(value)
 }
 
 fn encode_addr_spec(value: String) -> String {
@@ -487,47 +463,14 @@ fn percent_encode_codepoint_utf8(cp: Int) -> String {
 }
 
 fn to_hex_byte(byte: Int) -> String {
-  "%" <> hex_digit(byte / 16) <> hex_digit(byte % 16)
+  "%" <> string.pad_start(int.to_base16(byte), to: 2, with: "0")
 }
 
-fn hex_digit(nibble: Int) -> String {
-  case nibble {
-    0 -> "0"
-    1 -> "1"
-    2 -> "2"
-    3 -> "3"
-    4 -> "4"
-    5 -> "5"
-    6 -> "6"
-    7 -> "7"
-    8 -> "8"
-    9 -> "9"
-    10 -> "A"
-    11 -> "B"
-    12 -> "C"
-    13 -> "D"
-    14 -> "E"
-    _ -> "F"
-  }
-}
-
-fn escape_vcard(value: String) -> String {
-  // Strip raw CR and NUL (RFC 2426 §2.4.2 forbids them in TEXT
-  // values), then escape the four reserved characters in spec
-  // order — backslash first so subsequent escapes are not
-  // double-escaped.
-  value
-  |> string.replace(each: "\r", with: "")
-  |> string.replace(each: "\u{0000}", with: "")
-  |> string.replace(each: "\\", with: "\\\\")
-  |> string.replace(each: "\n", with: "\\n")
-  |> string.replace(each: ",", with: "\\,")
-  |> string.replace(each: ";", with: "\\;")
-}
-
-fn escape_ical(value: String) -> String {
-  // Same TEXT-value rules as vCard (RFC 5545 §3.3.11): strip raw CR
-  // and NUL before escaping the reserved set.
+fn escape_text(value: String) -> String {
+  // vCard (RFC 2426 §2.4.2) and iCalendar (RFC 5545 §3.3.11) share the
+  // TEXT-value rules. Strip raw CR and NUL, which neither allows, then
+  // escape the four reserved characters, backslash first so the later
+  // escapes are not escaped again.
   value
   |> string.replace(each: "\r", with: "")
   |> string.replace(each: "\u{0000}", with: "")
@@ -600,10 +543,8 @@ fn format_datetime(unix: Int, all_day: Bool) -> String {
 
 fn clamp_year(year: Int) -> Int {
   // RFC 5545 §3.3.5 fixes the year at 4 digits. Values outside
-  // `[1, 9999]` are clamped rather than emitted with a 5-digit
-  // year that breaks the fixed-width format (#10). Negative-input
-  // overflow (#9) is bounded by `floor_div` upstream so this
-  // mostly handles the Y10K side.
+  // `[1, 9999]` are clamped rather than emitted with a 5-digit or
+  // negative year that breaks the fixed-width format.
   case year < 1, year > 9999 {
     True, _ -> 1
     _, True -> 9999
@@ -613,11 +554,11 @@ fn clamp_year(year: Int) -> Int {
 
 fn unix_to_utc(unix: Int) -> #(Int, Int, Int, Int, Int, Int) {
   // Floor-divide so negative `unix` values produce non-negative
-  // sub-day components — Gleam's `/` and `%` truncate toward zero,
-  // which leaks negatives into the hour/minute/second components
-  // for any pre-epoch input (#9).
-  let days = floor_div(unix, 86_400)
-  let seconds_of_day = floor_mod(unix, 86_400)
+  // sub-day components: Gleam's `/` and `%` truncate toward zero,
+  // which would make the hour, minute and second of a pre-epoch
+  // time negative.
+  let days = int.floor_divide(unix, by: 86_400) |> result.unwrap(0)
+  let seconds_of_day = int.modulo(unix, by: 86_400) |> result.unwrap(0)
   let #(year, month, day) = civil_from_days(days)
   let hour = seconds_of_day / 3600
   let minute = { seconds_of_day % 3600 } / 60
@@ -625,26 +566,9 @@ fn unix_to_utc(unix: Int) -> #(Int, Int, Int, Int, Int, Int) {
   #(year, month, day, hour, minute, second)
 }
 
-fn floor_div(a: Int, b: Int) -> Int {
-  let q = a / b
-  let r = a - q * b
-  case r != 0 && { r < 0 } != { b < 0 } {
-    True -> q - 1
-    False -> q
-  }
-}
-
-fn floor_mod(a: Int, b: Int) -> Int {
-  let r = a % b
-  case r != 0 && { r < 0 } != { b < 0 } {
-    True -> r + b
-    False -> r
-  }
-}
-
 fn civil_from_days(days: Int) -> #(Int, Int, Int) {
   let z = days + 719_468
-  let era = floor_div(z, 146_097)
+  let era = int.floor_divide(z, by: 146_097) |> result.unwrap(0)
   let doe = z - era * 146_097
   let yoe = { doe - doe / 1460 + doe / 36_524 - doe / 146_096 } / 365
   let y = yoe + era * 400
@@ -667,10 +591,5 @@ fn civil_from_days(days: Int) -> #(Int, Int, Int) {
 }
 
 fn pad(value: Int, width: Int) -> String {
-  let text = int.to_string(value)
-  let zeros = width - string.length(text)
-  case zeros <= 0 {
-    True -> text
-    False -> string.repeat("0", zeros) <> text
-  }
+  string.pad_start(int.to_string(value), to: width, with: "0")
 }

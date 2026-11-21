@@ -4,6 +4,7 @@ import gleam/bit_array
 import gleam/int
 import gleam/list
 import gleam/order
+import gleam/result
 import gleam/string
 import qrkit/error.{type EncodeError, UnsupportedCharacter}
 import qrkit/internal/bitstream
@@ -58,7 +59,7 @@ pub fn char_count_bits(mode: Mode, version: Int) -> Int {
 pub fn character_count(data: String, mode: Mode) -> Int {
   case mode {
     Byte -> utf8_byte_length(data)
-    _ -> list.length(util.characters(data))
+    Numeric | Alphanumeric | Kanji -> list.length(util.characters(data))
   }
 }
 
@@ -83,15 +84,15 @@ pub fn is_numeric_char(char: String) -> Bool {
 }
 
 pub fn is_alphanumeric_char(char: String) -> Bool {
-  char |> alphanumeric_value |> is_ok
+  char |> alphanumeric_value |> result.is_ok
 }
 
 pub fn is_kanji_char(char: String) -> Bool {
-  char |> to_sjis |> is_ok
+  char |> to_sjis |> result.is_ok
 }
 
 /// The narrowest mode that can encode `char` on its own.
-pub fn classify(char: String) -> Mode {
+fn classify(char: String) -> Mode {
   case is_numeric_char(char), is_alphanumeric_char(char), is_kanji_char(char) {
     True, _, _ -> Numeric
     _, True, _ -> Alphanumeric
@@ -130,7 +131,7 @@ pub fn encode(
   }
 }
 
-pub fn numeric_bits_length(length: Int) -> Int {
+fn numeric_bits_length(length: Int) -> Int {
   10
   * { length / 3 }
   + case length % 3 {
@@ -140,26 +141,12 @@ pub fn numeric_bits_length(length: Int) -> Int {
   }
 }
 
-pub fn alphanumeric_bits_length(length: Int) -> Int {
+fn alphanumeric_bits_length(length: Int) -> Int {
   11
   * { length / 2 }
   + case length % 2 {
     0 -> 0
     _ -> 6
-  }
-}
-
-pub fn numeric_increment_cost(mod3: Int) -> Int {
-  case mod3 {
-    0 -> 4
-    _ -> 3
-  }
-}
-
-pub fn alphanumeric_increment_cost(mod2: Int) -> Int {
-  case mod2 {
-    0 -> 6
-    _ -> 5
   }
 }
 
@@ -263,6 +250,11 @@ fn do_encode_kanji(
   }
 }
 
+/// The character with Alphanumeric mode value `value` (0..44).
+pub fn alphanumeric_char(value: Int) -> Result(String, Nil) {
+  util.at(alphanumeric_chars, value)
+}
+
 fn alphanumeric_value(char: String) -> Result(Int, Nil) {
   do_alphanumeric_value(alphanumeric_chars, char, 0)
 }
@@ -286,13 +278,6 @@ fn must_parse(text: String) -> Int {
   case int.parse(text) {
     Ok(value) -> value
     Error(_) -> 0
-  }
-}
-
-fn is_ok(result: Result(a, b)) -> Bool {
-  case result {
-    Ok(_) -> True
-    Error(_) -> False
   }
 }
 

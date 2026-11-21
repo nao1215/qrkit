@@ -14,7 +14,6 @@ import gleam/int
 import gleam/list
 import gleeunit/should
 import qrkit
-import qrkit/internal/reed_solomon
 import qrkit/types
 
 /// ISO/IEC 23941:2022 Table 8, per version R7x43 .. R17x139:
@@ -182,13 +181,40 @@ fn deinterleave(codewords: List(Int), sizes: List(Int)) -> List(List(Int)) {
 /// to zero at alpha^0 .. alpha^(ec - 1).
 fn syndromes_are_zero(block: List(Int), ec_count: Int) -> Bool {
   int.range(from: 0, to: ec_count, with: True, run: fn(ok, power) {
-    let root = reed_solomon.gf_exp(power)
+    let root = gf_power_of_alpha(power)
     ok
     && list.fold(block, 0, fn(acc, codeword) {
-      int.bitwise_exclusive_or(reed_solomon.gf_multiply(acc, root), codeword)
+      int.bitwise_exclusive_or(gf_multiply(acc, root), codeword)
     })
     == 0
   })
+}
+
+/// alpha^power in GF(2^8) with alpha = 2.
+fn gf_power_of_alpha(power: Int) -> Int {
+  int.range(from: 0, to: power, with: 1, run: fn(acc, _) { gf_multiply(acc, 2) })
+}
+
+/// Multiply in GF(2^8) with the QR primitive polynomial 0x11D (shift and add).
+fn gf_multiply(a: Int, b: Int) -> Int {
+  case b {
+    0 -> 0
+    _ -> {
+      let rest = gf_multiply(gf_double(a), int.bitwise_shift_right(b, 1))
+      case int.bitwise_and(b, 1) {
+        1 -> int.bitwise_exclusive_or(rest, a)
+        _ -> rest
+      }
+    }
+  }
+}
+
+fn gf_double(a: Int) -> Int {
+  let shifted = int.bitwise_shift_left(a, 1)
+  case shifted > 0xFF {
+    True -> int.bitwise_exclusive_or(shifted, 0x11D)
+    False -> shifted
+  }
 }
 
 /// Read codewords the way a reader does: column pairs from the right edge
