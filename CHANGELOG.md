@@ -19,30 +19,6 @@ All notable changes to this project will be documented in this file.
 - The minimum `gleam_stdlib` version is now 0.69.0 (was 0.66.0, which was never published), the first release with `int.range`.
 - Encoding a large symbol is about 2.5 times faster and PNG output about 6 times faster.
 
-A 0.7.0 program such as
-
-```gleam
-qrkit.new("12345")
-|> qrkit.with_symbol(types.Micro)
-|> qrkit.with_ecc(types.Low)
-|> qrkit.build
-|> result.map(svg.to_string)
-```
-
-is now
-
-```gleam
-qrkit.encode_with(
-  "12345",
-  qrkit.EncodeOptions(
-    ..qrkit.default_encode_options(),
-    symbol: qrkit.Micro,
-    error_correction: qrkit.Low,
-  ),
-)
-|> result.map(qrkit.to_svg(_, qrkit.default_image_options()))
-```
-
 ### Fixed
 
 - `geo` wrote very small or large coordinates in exponent notation (`geo:1.0e-7,...`). It now writes plain decimals.
