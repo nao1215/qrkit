@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## [0.8.1] - 2026-11-23
+
 ### Fixed
 
 - Standard QR mask selection now scores the 1:1:3:1:1 pattern with the quiet zone counted as light and each occurrence counted once, and scores the dark-module proportion from the exact percentage (45.1% dark used to cost 10 points). The chosen mask now matches zxing's rules: 470 of 470 single-mode symbols in a random corpus are identical to zxing-cpp's encoder, against 227 before. Symbols still decode the same, but their modules and `mask` can change.
