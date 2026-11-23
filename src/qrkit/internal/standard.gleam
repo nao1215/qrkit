@@ -115,7 +115,7 @@ fn choose_version(
     [], Some(error) -> Error(error)
     [], None -> Error(DataExceedsCapacity(prefix_length, 0))
     [#(lo, hi), ..rest], _ ->
-      case segment.optimise(text, lo, preference) {
+      case segment.optimise(text, lo, preference, kanji: kanji_allowed(eci)) {
         Error(error) -> Error(error)
         Ok(segments) -> {
           let bits_needed =
@@ -135,6 +135,15 @@ fn choose_version(
           }
         }
       }
+  }
+}
+
+/// Kanji mode holds Shift JIS values, which a reader decodes with the
+/// character set of the active ECI. Shift JIS is ECI 20.
+fn kanji_allowed(eci: Option(Int)) -> Bool {
+  case eci {
+    Some(designator) -> designator == 20
+    None -> True
   }
 }
 

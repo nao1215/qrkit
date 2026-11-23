@@ -82,7 +82,9 @@ pub type EncodeOptions {
     version: Option(Int),
     /// An ECI designator (0..999999) written before the data. Standard QR
     /// only. Byte data is always UTF-8, so `Some(26)` is the designator that
-    /// matches it; other values only change the header.
+    /// matches it; other values only change the header. With any designator
+    /// but 20 (Shift JIS), kanji are written as UTF-8 Byte data, because a
+    /// reader decodes Kanji mode with the ECI's character set.
     eci: Option(Int),
     mode: ModePreference,
     /// Used only when `symbol` is `Rectangular` and `version` is `None`.
