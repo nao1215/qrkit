@@ -66,16 +66,19 @@ Further documentation can be found at <https://hexdocs.pm/qrkit/>. How qrkit is 
 
 ## Verifying releases
 
-Each GitHub Release attaches the Hex package tarball (`qrkit-<version>.tar`),
-`checksums.txt`, a cosign signature bundle (`checksums.txt.sigstore.json`) and
-build provenance (`qrkit-<version>.intoto.jsonl`). Download the assets, then:
+Each GitHub Release attaches the tarball published to Hex (`qrkit-<version>.tar`), `checksums.txt`, a cosign signature bundle (`checksums.txt.sigstore.json`) and build provenance (`qrkit-<version>.intoto.jsonl`). The release workflow downloads the tarball from Hex after `gleam publish` and checks it against the checksum Hex records before signing it, so the tarball you get from Hex is the one that is signed and attested.
 
 ```sh
+curl -fsSLO https://repo.hex.pm/tarballs/qrkit-<version>.tar
 gh attestation verify qrkit-<version>.tar --repo nao1215/qrkit
+```
 
+To check the signature as well, download `checksums.txt` and `checksums.txt.sigstore.json` from the Release into the same directory. The workflow runs on the release tag, or on `main` when the assets of a published tag are attached again.
+
+```sh
 cosign verify-blob \
   --bundle checksums.txt.sigstore.json \
-  --certificate-identity-regexp '^https://github\.com/nao1215/qrkit/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/nao1215/qrkit/\.github/workflows/release\.yml@refs/(tags/v.+|heads/main)$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   checksums.txt
 sha256sum --check checksums.txt
