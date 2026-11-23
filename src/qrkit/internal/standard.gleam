@@ -139,12 +139,12 @@ fn choose_version(
 }
 
 /// Kanji mode holds Shift JIS values, which a reader decodes with the
-/// character set of the active ECI. Shift JIS is ECI 20.
+/// character set of the active ECI. Byte data is always UTF-8, so under
+/// ECI 26 (UTF-8) kanji are written as bytes, which every reader decodes
+/// correctly. Under other designators neither form is right for a reader
+/// that honours the ECI, and Kanji mode keeps qrkit's own round trip.
 fn kanji_allowed(eci: Option(Int)) -> Bool {
-  case eci {
-    Some(designator) -> designator == 20
-    None -> True
-  }
+  eci != Some(26)
 }
 
 fn best_version_in_range(

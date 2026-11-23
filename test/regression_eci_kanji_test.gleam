@@ -1,7 +1,8 @@
 //// Kanji mode writes Shift JIS values. A reader that honours an ECI
-//// designator other than Shift JIS (20) applies that character set to
-//// them: zxing-cpp read Kanji segments after ECI 26 (UTF-8) as garbage.
-//// So with such an ECI, kanji are written as UTF-8 Byte data instead.
+//// applies its character set to them: zxing-cpp read Kanji segments after
+//// ECI 26 (UTF-8) as garbage. Under ECI 26, kanji are written as UTF-8
+//// Byte data instead. Other designators keep Kanji mode, which qrkit's
+//// own decoder reads whatever the ECI.
 
 import gleam/option.{Some}
 import qrkit
@@ -29,6 +30,10 @@ pub fn utf8_eci_writes_kanji_as_bytes_test() {
   assert decoded.eci == Some(26)
 }
 
-pub fn shift_jis_eci_keeps_kanji_mode_test() {
+pub fn other_ecis_keep_kanji_mode_test() {
   assert encode("漢字東", 20).version == 1
+  let latin1 = encode("漢字東", 3)
+  assert latin1.version == 1
+  let assert Ok(decoded) = qrkit.decode(latin1.rows)
+  assert decoded.text == "漢字東"
 }

@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Standard QR mask selection now scores the 1:1:3:1:1 pattern with the quiet zone counted as light and each occurrence counted once, and scores the dark-module proportion from the exact percentage (45.1% dark used to cost 10 points). The chosen mask now matches zxing's rules: 470 of 470 single-mode symbols in a random corpus are identical to zxing-cpp's encoder, against 227 before. Symbols still decode the same, but their modules and `mask` can change.
 - Micro QR mask selection read one module instead of the bottom row, so it often kept a worse mask than ISO/IEC 18004 §7.8.3.2 asks for. The masks now match segno and zxing-cpp.
-- With an ECI designator other than 20 (Shift JIS), kanji are written as UTF-8 Byte data. zxing-cpp read Kanji segments after ECI 26 as garbage, because readers decode Kanji mode with the ECI's character set. This can need a larger version.
+- With `eci: Some(26)` (UTF-8), kanji are written as UTF-8 Byte data. zxing-cpp read Kanji segments after ECI 26 as garbage, because readers decode Kanji mode with the ECI's character set. This can need a larger version.
 
 ## [0.8.0] - 2026-11-22
 
