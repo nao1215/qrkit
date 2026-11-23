@@ -1,5 +1,5 @@
 name = "qrkit"
-version = "0.8.0"
+version = "0.8.1"
 description = "QR code encoder and decoder in pure Gleam, with terminal, SVG and PNG output."
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "qrkit" }
