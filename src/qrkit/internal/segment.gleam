@@ -25,17 +25,24 @@ pub type Header {
   Header(indicator: Int, indicator_bits: Int, count_bits: Int)
 }
 
+/// The segments with the fewest bits for a Standard QR of `version`.
+/// `kanji: False` leaves Kanji mode out, for an ECI whose character set is
+/// not Shift JIS.
 pub fn optimise(
   text: String,
   version: Int,
   preference: ModePreference,
+  kanji kanji: Bool,
 ) -> Result(List(Segment), EncodeError) {
   case preference {
     ForceByte -> Ok([build_segment(Byte, text, 0)])
     Auto -> {
       let optimal =
         optimal_segments(util.characters(text), fn(m) {
-          { 4 + mode.char_count_bits(m, version) } * 6
+          case m, kanji {
+            Kanji, False -> unreachable
+            _, _ -> { 4 + mode.char_count_bits(m, version) } * 6
+          }
         })
       let single_byte = [build_segment(Byte, text, 0)]
       // The search below weighs Numeric and Alphanumeric characters by their

@@ -275,7 +275,8 @@ pub fn micro_qr_half_codeword_padding_carries_no_error_test() -> Nil {
 }
 
 pub fn micro_qr_m1_matches_segno_test() -> Nil {
-  // segno.make("705", version="M1", mask=3, micro=True): the same modules.
+  // segno.make("705", version="M1", micro=True) and zxing-cpp both pick
+  // mask 1 and write the same modules.
   let assert Ok(qr) =
     qrkit.encode_with(
       "705",
@@ -285,13 +286,13 @@ pub fn micro_qr_m1_matches_segno_test() -> Nil {
         error_correction: qrkit.Low,
       ),
     )
-  qr.mask |> should.equal(3)
+  qr.mask |> should.equal(1)
   qr.rows
   |> should.equal(
     rows_of([
-      "11111110101", "10000010011", "10111010001", "10111010110", "10111010101",
-      "10000010110", "11111110001", "00000000010", "11001011011", "01111100101",
-      "10000010010",
+      "11111110101", "10000010000", "10111010111", "10111010011", "10111010001",
+      "10000010100", "11111110111", "00000000110", "11000001010", "01001010011",
+      "11111101101",
     ]),
   )
 }

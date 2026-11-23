@@ -58,7 +58,7 @@ pub fn label() -> Result(String, qrkit.EncodeError) {
 
 - Many phone scanner apps cannot read Micro QR or rMQR, and some read Structured Append symbols from `encode_split` one by one without joining them. Test the target reader first.
 - Micro QR has no High error correction and M1 takes only Low, while rMQR takes only Medium and High. Other levels return `ErrorCorrectionNotSupported`. M1 holds digits only.
-- Byte data is always UTF-8. Set `eci: Some(26)` to say so; other ECI values only change the header.
+- Byte data is always UTF-8. Set `eci: Some(26)` to say so; kanji are then written as UTF-8 bytes instead of Kanji mode, which can need a larger version. Other ECI values change only the header, so readers that honour them misread non-ASCII text.
 - `decode` reads a grid of modules, not a photo. Finding a symbol in a camera image is out of scope.
 - qrkit does not check the payload. A `javascript:` URI or an attacker-controlled string reaches the scanning app as given. The SVG output escapes the colours and nothing else, so sanitise it before embedding it in untrusted HTML.
 

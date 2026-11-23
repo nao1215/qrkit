@@ -123,17 +123,23 @@ fn same_colour_blocks(top: List(Bool), bottom: List(Bool), acc: Int) -> Int {
   }
 }
 
-/// The 1:1:3:1:1 finder-like pattern with four light modules on one side,
-/// found with an 11-module window that slides along each row and column.
+/// The 1:1:3:1:1 finder-like pattern `1011101` with four light modules
+/// before or after it. The quiet zone around the symbol is light, so the
+/// light modules may lie outside the symbol. Each occurrence of the pattern
+/// counts once, as in ISO/IEC 18004 §7.8.3.1 Table 11, zxing and segno.
 fn penalty_n3(rows: List(List(Bool)), columns: List(List(Bool))) -> Int {
   { sum_lines(rows, finder_like_count) + sum_lines(columns, finder_like_count) }
   * 40
 }
 
+const quiet: List(Bool) = [False, False, False, False]
+
 fn finder_like_count(values: List(Bool)) -> Int {
-  finder_like_loop(values, 0, 0, 0)
+  finder_like_loop(list.flatten([quiet, values, quiet]), 0, 0, 0)
 }
 
+// `window` holds the last 15 modules: four before the pattern, the seven
+// pattern modules and four after it.
 fn finder_like_loop(
   values: List(Bool),
   window: Int,
@@ -143,9 +149,14 @@ fn finder_like_loop(
   case values {
     [] -> count
     [value, ..rest] -> {
-      let window = int.bitwise_and(window * 2 + util.bool_to_int(value), 0x7FF)
+      let window = int.bitwise_and(window * 2 + util.bool_to_int(value), 0x7FFF)
       let seen = seen + 1
-      let count = case seen >= 11 && { window == 0x5D0 || window == 0x05D } {
+      let pattern = int.bitwise_and(int.bitwise_shift_right(window, 4), 0x7F)
+      let light_before = int.bitwise_shift_right(window, 11) == 0
+      let light_after = int.bitwise_and(window, 0xF) == 0
+      let count = case
+        seen >= 15 && pattern == 0x5D && { light_before || light_after }
+      {
         True -> count + 1
         False -> count
       }
@@ -154,17 +165,13 @@ fn finder_like_loop(
   }
 }
 
+/// Ten points for each full 5% step that the dark proportion lies away from
+/// 50%. `|100 * dark / total - 50| / 5` is computed exactly, as
+/// `|20 * dark - 10 * total| / total`, so 45.1% dark scores 0.
 fn penalty_n4(target: matrix.Matrix) -> Int {
   let dark = matrix.dark_count(target)
   let total = matrix.total_cells(target)
-  let percentage = dark * 100 / total
-  let deviation = percentage - 50
-  let absolute = case deviation < 0 {
-    True -> 0 - deviation
-    False -> deviation
-  }
-  let lower_bucket = absolute / 5
-  lower_bucket * 10
+  int.absolute_value(20 * dark - 10 * total) / total * 10
 }
 
 pub fn mask_at(mask: Int, row: Int, col: Int) -> Bool {
