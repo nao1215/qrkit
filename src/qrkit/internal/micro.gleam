@@ -670,7 +670,7 @@ pub fn mask_at(mask: Int, row: Int, col: Int) -> Bool {
 fn micro_penalty(target: matrix.Matrix, size: Int) -> Int {
   let last = size - 1
   let dark_right = count_dark_edge(target, last, 1, last, True)
-  let dark_bottom = count_dark_edge(target, 1, last, last, False)
+  let dark_bottom = count_dark_edge(target, last, 1, last, False)
   let high = case dark_right >= dark_bottom {
     True -> dark_right
     False -> dark_bottom
