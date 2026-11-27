@@ -12,11 +12,9 @@
 import generators
 import gleam/list
 import gleam/result
+import gleam/string
 import metamon
 import metamon/generator
-import metamon/generator/range
-import metamon/relation
-import metamon/transform
 import qrkit
 
 type Request =
@@ -55,22 +53,38 @@ fn not_larger(left: Result(Int, Nil), right: Result(Int, Nil)) -> Bool {
   }
 }
 
-fn append(suffix: String) -> transform.Transform(Request) {
-  transform.new("append " <> suffix, fn(input: Request) {
+fn append(suffix: String) -> metamon.Transform(Request) {
+  metamon.Transform(name: "append " <> suffix, apply: fn(input: Request) {
     let #(text, symbol, ecc) = input
     #(text <> suffix, symbol, ecc)
   })
 }
 
+fn not_smaller() -> metamon.Relation(Result(Int, Nil)) {
+  metamon.Relation(name: "not smaller", holds: not_larger)
+}
+
+/// `transform` applied `times` times.
+fn repeat(
+  transform: metamon.Transform(a),
+  name: String,
+  times: Int,
+) -> metamon.Transform(a) {
+  metamon.Transform(name:, apply: fn(value) {
+    list.fold(list.repeat(transform.apply, times), value, fn(acc, apply) {
+      apply(acc)
+    })
+  })
+}
+
 pub fn longer_payload_never_gets_a_smaller_symbol_test() -> Nil {
-  let grows = relation.new("not smaller", not_larger)
-  metamon.forall_morphs(
+  metamon.forall_morph(
     request(),
     list.map(["7", "Z", "z", "漢", "é"], fn(suffix) {
-      metamon.mr(
+      metamon.Morph(
         name: "append " <> suffix,
         transform: append(suffix),
-        relation: grows,
+        relation: not_smaller(),
       )
     }),
     modules,
@@ -100,30 +114,44 @@ fn stronger(input: Request) -> Request {
 fn long_request() -> generator.Generator(Request) {
   let char =
     generator.frequency([
-      #(3, generator.ascii_digit()),
-      #(2, generator.ascii_upper()),
-      #(1, generator.ascii_printable()),
+      #(3, generator.character(of: generator.Digits)),
+      #(
+        2,
+        generator.string_from(
+          characters: generator.element_of(upper_letters()),
+          length: generator.range(from: 1, to: 1),
+        ),
+      ),
+      #(1, generator.character(of: generator.PrintableAscii)),
     ])
   generator.tuple3(
-    generator.string(char, range.constant(150, 500)),
+    generator.string_from(
+      characters: char,
+      length: generator.range(from: 150, to: 500),
+    ),
     generator.return(qrkit.Standard),
     generators.ecc(),
   )
+}
+
+fn upper_letters() -> List(String) {
+  string.split("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "")
 }
 
 /// Each run builds two symbols of version 10 to 30, so this test keeps its
 /// own small run count: the nightly job multiplies it by 10 and eunit stops a
 /// test after 5 seconds.
 pub fn longer_long_payload_never_gets_a_smaller_symbol_test() -> Nil {
-  let cfg = metamon.default_config() |> metamon.with_runs_or_panic(10)
   metamon.forall_morph_with(
-    cfg,
+    metamon.Config(..metamon.default_config(), runs: 10),
     long_request(),
-    metamon.mr(
-      name: "append 7",
-      transform: append("7"),
-      relation: relation.new("not smaller", not_larger),
-    ),
+    [
+      metamon.Morph(
+        name: "append 7",
+        transform: append("7"),
+        relation: not_smaller(),
+      ),
+    ],
     modules,
   )
 }
@@ -131,11 +159,13 @@ pub fn longer_long_payload_never_gets_a_smaller_symbol_test() -> Nil {
 pub fn stronger_error_correction_never_gets_a_smaller_symbol_test() -> Nil {
   metamon.forall_morph(
     request(),
-    metamon.mr(
-      name: "raise error correction one level",
-      transform: transform.new("stronger", stronger),
-      relation: relation.new("not smaller", not_larger),
-    ),
+    [
+      metamon.Morph(
+        name: "raise error correction one level",
+        transform: metamon.Transform(name: "stronger", apply: stronger),
+        relation: not_smaller(),
+      ),
+    ],
     modules,
   )
 }
@@ -184,29 +214,31 @@ fn read(rows: List(List(Bool))) -> Result(String, Nil) {
 }
 
 pub fn decoder_reads_the_same_text_after_turning_and_padding_test() -> Nil {
-  let quarter = transform.new("rotate 90", rotate_clockwise)
-  metamon.forall_morphs(
+  let quarter = metamon.Transform(name: "rotate 90", apply: rotate_clockwise)
+  metamon.forall_morph(
     rows_of(request()),
     [
       metamon.invariant_under(
         name: "rotate 180",
-        under: transform.repeat(quarter, times: 2),
+        under: repeat(quarter, "rotate 180", 2),
       ),
       metamon.invariant_under(
         name: "mirror left to right",
-        under: transform.new("mirror", fn(rows) { list.map(rows, list.reverse) }),
+        under: metamon.Transform(name: "mirror", apply: fn(rows) {
+          list.map(rows, list.reverse)
+        }),
       ),
       metamon.invariant_under(
         name: "mirror top to bottom",
-        under: transform.new("flip", list.reverse),
+        under: metamon.Transform(name: "flip", apply: list.reverse),
       ),
       metamon.invariant_under(
         name: "light quiet zone of 1",
-        under: transform.new("pad 1", fn(rows) { pad(rows, 1) }),
+        under: metamon.Transform(name: "pad 1", apply: pad(_, 1)),
       ),
       metamon.invariant_under(
         name: "light quiet zone of 4",
-        under: transform.new("pad 4", fn(rows) { pad(rows, 4) }),
+        under: metamon.Transform(name: "pad 4", apply: pad(_, 4)),
       ),
     ],
     read,
@@ -214,18 +246,18 @@ pub fn decoder_reads_the_same_text_after_turning_and_padding_test() -> Nil {
 }
 
 pub fn decoder_reads_the_same_text_after_a_quarter_turn_test() -> Nil {
-  let quarter = transform.new("rotate 90", rotate_clockwise)
-  metamon.forall_morphs(
+  let quarter = metamon.Transform(name: "rotate 90", apply: rotate_clockwise)
+  metamon.forall_morph(
     rows_of(request()),
     [
       metamon.invariant_under(name: "rotate 90", under: quarter),
       metamon.invariant_under(
         name: "rotate 270",
-        under: transform.repeat(quarter, times: 3),
+        under: repeat(quarter, "rotate 270", 3),
       ),
       metamon.invariant_under(
         name: "mirror on the diagonal",
-        under: transform.new("transpose", transpose),
+        under: metamon.Transform(name: "transpose", apply: transpose),
       ),
     ],
     read,
@@ -234,21 +266,22 @@ pub fn decoder_reads_the_same_text_after_a_quarter_turn_test() -> Nil {
 
 pub fn padding_keeps_what_the_decoder_reports_test() -> Nil {
   metamon.forall(
-    generator.tuple2(request(), generator.int(range.constant(1, 6))),
+    generator.tuple2(request(), generator.int(generator.range(from: 1, to: 6))),
     fn(input) {
       let #(req, by) = input
       case build(req) {
-        Error(_) -> True
-        Ok(qr) ->
-          case qrkit.decode(pad(qr.rows, by)) {
-            Ok(decoded) ->
-              decoded.version == qr.version
-              && decoded.symbol == qr.symbol
-              && decoded.error_correction == qr.error_correction
-              && decoded.mask == qr.mask
-              && decoded.errors_corrected == 0
-            Error(_) -> False
-          }
+        Error(_) -> Nil
+        Ok(qr) -> {
+          let assert Ok(decoded) = qrkit.decode(pad(qr.rows, by))
+          assert #(
+              decoded.version,
+              decoded.symbol,
+              decoded.error_correction,
+              decoded.mask,
+              decoded.errors_corrected,
+            )
+            == #(qr.version, qr.symbol, qr.error_correction, qr.mask, 0)
+        }
       }
     },
   )

@@ -12,9 +12,8 @@ import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import metamon
+import gleam/time/timestamp
 import metamon/generator
-import metamon/generator/seed
 import qrkit
 import simplifile
 
@@ -33,7 +32,7 @@ pub fn main() -> Nil {
       generator.bool(),
     )
   let lines =
-    draw(cases, metamon.random_seed(), count, [])
+    generator.sample(cases, count:, seed: clock_seed())
     |> list.filter_map(fn(input) {
       let #(text, symbol, ecc, utf8) = input
       let eci = case utf8, symbol {
@@ -73,22 +72,11 @@ pub fn main() -> Nil {
   )
 }
 
-fn draw(
-  g: generator.Generator(a),
-  s: seed.Seed,
-  remaining: Int,
-  acc: List(a),
-) -> List(a) {
-  case remaining <= 0 {
-    True -> acc
-    False -> {
-      let #(left, right) = seed.split(s)
-      draw(g, right, remaining - 1, [
-        generator.generate(g, left, 50).value,
-        ..acc
-      ])
-    }
-  }
+/// A new seed on every run, from the wall clock.
+fn clock_seed() -> Int {
+  let #(seconds, nanoseconds) =
+    timestamp.system_time() |> timestamp.to_unix_seconds_and_nanoseconds
+  seconds * 1_000_000_000 + nanoseconds
 }
 
 fn symbol_name(symbol: qrkit.Symbol) -> String {
