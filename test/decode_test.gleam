@@ -2,6 +2,8 @@
 //// symbols written by another encoder (segno 1.6, shown in each fixture's
 //// comment), orientation and quiet zone handling, and error correction.
 
+import gleam/bit_array
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
@@ -413,3 +415,23 @@ const segno_micro: List(String) = [
   "0111101000000",
   "1101111101110",
 ]
+
+/// Symbols segno wrote (scripts/interop.py fixtures): Standard QR with each
+/// of the 8 masks, Micro QR with each of the 4, each mode at versions 9, 10,
+/// 26 and 27, and Byte data without an ECI in Shift JIS, Latin-1 or UTF-8,
+/// random and on the edges of the character-set guess. qrkit must read the
+/// text zxing-cpp reads and the mask segno chose. The encoder and decoder share the mask patterns, so a
+/// wrong pattern still round-trips; only another writer's symbols show it.
+pub fn reads_segno_symbols_test() -> Nil {
+  let assert Ok(fixture) = simplifile.read("test/fixtures/segno_symbols.tsv")
+  string.split(fixture, "\n")
+  |> list.filter(fn(line) { line != "" && !string.starts_with(line, "#") })
+  |> list.each(fn(line) {
+    let assert [label, mask, text, matrix] = string.split(line, "\t")
+    let assert Ok(bytes) = bit_array.base16_decode(string.uppercase(text))
+    let assert Ok(text) = bit_array.to_string(bytes)
+    let assert Ok(decoded) = qrkit.decode(rows_of(string.split(matrix, "/")))
+    #(label, decoded.text, int.to_string(decoded.mask))
+    |> should.equal(#(label, text, mask))
+  })
+}
