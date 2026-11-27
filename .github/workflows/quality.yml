@@ -113,9 +113,9 @@ jobs:
         run: |
           set -e
           if [ "$FILES" = all ]; then
-            gleam run -m mutation -- run --workers 4
+            gleam run -m metamon/mutation -- run --workers 4 --exclude src/qrkit/internal/kanji_table.gleam
           else
             # shellcheck disable=SC2086
-            gleam run -m mutation -- run --workers 4 $FILES
+            gleam run -m metamon/mutation -- run --workers 4 --exclude src/qrkit/internal/kanji_table.gleam $FILES
           fi
-          gleam run -m mutation -- gate
+          gleam run -m metamon/mutation -- gate

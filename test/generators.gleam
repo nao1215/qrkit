@@ -1,7 +1,6 @@
 //// Generators shared by the property tests and the nightly interop corpus.
 
 import metamon/generator
-import metamon/generator/range
 import qrkit
 
 /// Strings mixing ASCII, digits, kana, kanji, Latin-1 letters, an emoji and
@@ -9,8 +8,8 @@ import qrkit
 pub fn text() -> generator.Generator(String) {
   let char =
     generator.frequency([
-      #(4, generator.ascii_printable()),
-      #(3, generator.ascii_digit()),
+      #(4, generator.character(of: generator.PrintableAscii)),
+      #(3, generator.character(of: generator.Digits)),
       #(
         2,
         generator.element_of([
@@ -18,7 +17,10 @@ pub fn text() -> generator.Generator(String) {
         ]),
       ),
     ])
-  generator.string(char, range.constant(1, 40))
+  generator.string_from(
+    characters: char,
+    length: generator.range(from: 1, to: 40),
+  )
 }
 
 pub fn symbol() -> generator.Generator(qrkit.Symbol) {

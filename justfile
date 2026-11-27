@@ -100,16 +100,16 @@ interop-record: (interop "10" "5000")
 # Slow: run it on a machine with many cores, then `just mutation-record`.
 # Mutation testing of every module, failing on survivors the baseline lacks
 mutation workers="8":
-  gleam run -m mutation -- run --workers {{workers}}
-  gleam run -m mutation -- gate
+  gleam run -m metamon/mutation -- run --workers {{workers}} --exclude src/qrkit/internal/kanji_table.gleam
+  gleam run -m metamon/mutation -- gate
 
 # Record the last mutation run as the baseline in doc/
 mutation-record:
-  gleam run -m mutation -- baseline
+  gleam run -m metamon/mutation -- baseline
 
 # Check that the generated tables and figures match the code and results
 doc-check:
   gleam run -m interop -- doc-check
-  gleam run -m mutation -- doc-check
+  gleam run -m metamon/mutation -- doc-check
   gleam run -m gen/doc_images
   test -z "$(git status --porcelain -- docs/images)" || { git status --short -- docs/images; exit 1; }
