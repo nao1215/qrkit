@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `doc/interop.md` records how often zxing-cpp and zbar read random symbols qrkit writes and how often qrkit reads segno's, and pull requests now run a small corpus of it. zbar misreads about 30% of non-ASCII Byte data without an ECI as Shift JIS; `eci: Some(26)` avoids this.
+- Mutation testing (`dev/mutation.gleam`, built on glance) runs on the modules a pull request changes and weekly on every module, and fails on a survivor that `doc/mutation/baseline.json` does not list.
+- Tests for the address part of `email` with 2-, 3- and 4-byte UTF-8, version information against segno, ECI designators of every length, kanji on the edges of both Shift JIS ranges, vCard lines of 75 and 76 octets, and a PNG checked with Python's zlib. `test/fixtures/segno_symbols.tsv` holds segno symbols with each mask, each mode at versions 9, 10, 26 and 27, and 143 Byte symbols without an ECI in Shift JIS, Latin-1 or UTF-8, which qrkit must read as zxing-cpp does.
+- Figures drawn by qrkit itself in the README and in the docs of `Symbol` and `ErrorCorrection`.
+
 ## [0.8.1] - 2026-11-23
 
 ### Fixed

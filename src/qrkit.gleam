@@ -38,7 +38,10 @@ import qrkit/internal/types
 // Encoding -------------------------------------------------------------------
 
 /// How much of the symbol can be damaged and still be read: about 7%
-/// (`Low`), 15% (`Medium`), 25% (`Quartile`) or 30% (`High`).
+/// (`Low`), 15% (`Medium`), 25% (`Quartile`) or 30% (`High`). A higher level
+/// needs more modules for the same text.
+///
+/// ![The same URL at Low and Medium is 25 by 25 modules, at Quartile 29 by 29, at High 33 by 33](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/error-correction.svg)
 pub type ErrorCorrection {
   Low
   Medium
@@ -47,7 +50,9 @@ pub type ErrorCorrection {
 }
 
 /// The symbol family: square QR codes, the smaller Micro QR (M1..M4), or
-/// rectangular rMQR.
+/// rectangular rMQR. Many phone apps read only Standard QR.
+///
+/// ![The digits 12345678 as Standard QR (21 by 21 modules), Micro QR (13 by 13) and rMQR (27 by 11)](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/symbols.svg)
 pub type Symbol {
   Standard
   Micro

@@ -3,6 +3,7 @@
 [![CI](https://github.com/nao1215/qrkit/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/ci.yml)
 [![Gitleaks](https://github.com/nao1215/qrkit/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/gitleaks.yml)
 [![Trivy](https://github.com/nao1215/qrkit/actions/workflows/trivy.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/trivy.yml)
+[![quality](https://github.com/nao1215/qrkit/actions/workflows/quality.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/quality.yml)
 [![OSV-Scanner](https://github.com/nao1215/qrkit/actions/workflows/osv-scan.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/osv-scan.yml)
 [![Hex](https://img.shields.io/hexpm/v/qrkit)](https://hex.pm/packages/qrkit)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/qrkit/)
@@ -11,6 +12,8 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/nao1215/qrkit/badge)](https://scorecard.dev/viewer/?uri=github.com/nao1215/qrkit)
 
 QR code encoder and decoder written in pure Gleam, for the Erlang and JavaScript targets. It writes Standard QR, Micro QR and rMQR symbols, renders them for the terminal, as SVG or as PNG, and reads module matrices back.
+
+![The digits 12345678 as Standard QR (21 by 21 modules), Micro QR (13 by 13) and rMQR (27 by 11)](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/symbols.svg)
 
 ```sh
 gleam add qrkit@0
@@ -58,11 +61,19 @@ pub fn label() -> Result(String, qrkit.EncodeError) {
 
 - Many phone scanner apps cannot read Micro QR or rMQR, and some read Structured Append symbols from `encode_split` one by one without joining them. Test the target reader first.
 - Micro QR has no High error correction and M1 takes only Low, while rMQR takes only Medium and High. Other levels return `ErrorCorrectionNotSupported`. M1 holds digits only.
-- Byte data is always UTF-8. Set `eci: Some(26)` to say so; kanji are then written as UTF-8 bytes instead of Kanji mode, which can need a larger version. Other ECI values change only the header, so readers that honour them misread non-ASCII text.
+- Byte data is always UTF-8, and without an ECI readers guess the character set: zbar misreads about 30% of them as Shift JIS. Set `eci: Some(26)` to say UTF-8; kanji are then written as UTF-8 bytes instead of Kanji mode, which can need a larger version. Other ECI values change only the header, so readers that honour them misread non-ASCII text.
 - `decode` reads a grid of modules, not a photo. Finding a symbol in a camera image is out of scope.
 - qrkit does not check the payload. A `javascript:` URI or an attacker-controlled string reaches the scanning app as given. The SVG output escapes the colours and nothing else, so sanitise it before embedding it in untrusted HTML.
 
-Further documentation can be found at <https://hexdocs.pm/qrkit/>. How qrkit is tested is described in [doc/testing.md](https://github.com/nao1215/qrkit/blob/main/doc/testing.md).
+Further documentation can be found at <https://hexdocs.pm/qrkit/>.
+
+## Other readers
+
+Every pull request checks that zxing-cpp and zbar read random symbols qrkit writes, and that qrkit reads symbols segno writes, the same way zxing-cpp does. A single disagreement fails the check, except for zbar on non-ASCII text without an ECI, which is recorded only.
+
+![Share of random symbols each reader read back as written: 100% everywhere except zbar on non-ASCII text without an ECI, 69%](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/interop.svg)
+
+[Counts and versions](https://github.com/nao1215/qrkit/blob/main/doc/interop.md) · [How qrkit is tested, with mutation scores](https://github.com/nao1215/qrkit/blob/main/doc/testing.md)
 
 ## Verifying releases
 
