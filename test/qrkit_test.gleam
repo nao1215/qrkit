@@ -1767,7 +1767,12 @@ pub fn email_to_percent_encodes_every_utf8_length_test() -> Nil {
     "mailto:%C3%BC%E6%97%A5%F0%9F%98%80%20x@%E4%BE%8B.jp?subject=S&body=B",
   )
   // The first and last codepoint of the 2-, 3- and 4-byte UTF-8 ranges.
-  qrkit.email(to: "é\u{0800}\u{FFFF}\u{10000}", subject: "S", body: "B")
+  // Built from codepoints: Gleam 1.14 writes "\u{FFFF}" into Erlang source
+  // that OTP 27 rejects.
+  let assert Ok(edges) =
+    [0xE9, 0x0800, 0xFFFF, 0x10000]
+    |> list.try_map(string.utf_codepoint)
+  qrkit.email(to: string.from_utf_codepoints(edges), subject: "S", body: "B")
   |> should.equal(
     "mailto:%C3%A9%E0%A0%80%EF%BF%BF%F0%90%80%80?subject=S&body=B",
   )
