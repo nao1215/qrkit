@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="250" viewBox="0 0 720 250" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14">
+<style>
+text{fill:#1f2328}
+.box{fill:#f6f8fa;stroke:#d0d7de}
+.us{fill:#ddf4ff;stroke:#54aeff}
+.line{stroke:#57606a;fill:none;stroke-width:1.5}
+.head{fill:#57606a}
+.note{fill:#57606a;font-size:12px}
+@media (prefers-color-scheme:dark){
+text{fill:#e6edf3}
+.box{fill:#161b22;stroke:#30363d}
+.us{fill:#0c2d6b;stroke:#1f6feb}
+.line{stroke:#8b949e}
+.head{fill:#8b949e}
+.note{fill:#8b949e}
+}
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker></defs>
+<text x="20" y="24" font-weight="600">qrkit writes, others read</text>
+<rect class="box" x="20" y="44" width="130" height="40" rx="6"/><text x="85" y="69" text-anchor="middle">random text</text>
+<rect class="us" x="200" y="44" width="110" height="40" rx="6"/><text x="255" y="69" text-anchor="middle">qrkit</text>
+<rect class="box" x="370" y="24" width="120" height="36" rx="6"/><text x="430" y="47" text-anchor="middle">zxing-cpp</text>
+<rect class="box" x="370" y="70" width="120" height="36" rx="6"/><text x="430" y="93" text-anchor="middle">zbar</text>
+<path class="line" marker-end="url(#a)" d="M150 64H198"/>
+<path class="line" marker-end="url(#a)" d="M310 58L368 44"/>
+<path class="line" marker-end="url(#a)" d="M310 70L368 86"/>
+<path class="line" marker-end="url(#a)" d="M490 64H548"/>
+<text x="560" y="60">same text as</text><text x="560" y="78">the input?</text>
+<text x="20" y="154" font-weight="600">others write, qrkit reads</text>
+<rect class="box" x="20" y="174" width="130" height="40" rx="6"/><text x="85" y="199" text-anchor="middle">random text</text>
+<rect class="box" x="200" y="174" width="110" height="40" rx="6"/><text x="255" y="199" text-anchor="middle">segno</text>
+<rect class="box" x="370" y="154" width="120" height="36" rx="6"/><text x="430" y="177" text-anchor="middle">zxing-cpp</text>
+<rect class="us" x="370" y="200" width="120" height="36" rx="6"/><text x="430" y="223" text-anchor="middle">qrkit</text>
+<path class="line" marker-end="url(#a)" d="M150 194H198"/>
+<path class="line" marker-end="url(#a)" d="M310 188L368 174"/>
+<path class="line" marker-end="url(#a)" d="M310 200L368 216"/>
+<path class="line" marker-end="url(#a)" d="M490 194H548"/>
+<text x="560" y="190">same text as</text><text x="560" y="208">each other?</text>
+<text class="note" x="560" y="226">zxing-cpp's guess wins</text>
+<text class="note" x="560" y="241">for Byte data</text>
+</svg>

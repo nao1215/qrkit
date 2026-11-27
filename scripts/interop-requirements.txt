@@ -65,11 +65,13 @@ numpy==2.5.4 \
     --hash=sha256:fbde6962867ee75b48b0ee29b2b9372ec5d617799dbaf38e82dc0596f2f7738a \
     --hash=sha256:fe4d21ab149f15e4e6043dfb0de87e6e5f34ac176cde83060e9802981fca2ac2 \
     --hash=sha256:ffa6ce09a1c6a08e9667dd9c97aa0b14184e8d18f2a14b78b2a2328c9147f076
-    # via -r scripts/interop-requirements.in
+pyzbar==0.1.9 \
+    --hash=sha256:13e3ee5a2f3a545204a285f41814d5c0db571967e8d4af8699a03afc55182a9c \
+    --hash=sha256:4559628b8192feb25766d954b36a3753baaf5c97c03135aec7e4a026036b475d \
+    --hash=sha256:8f4c5264c9c7c6b9f20d01efc52a4eba1ded47d9ba857a94130afe33703eb518
 segno==1.6.6 \
     --hash=sha256:28c7d081ed0cf935e0411293a465efd4d500704072cdb039778a2ab8736190c7 \
     --hash=sha256:e60933afc4b52137d323a4434c8340e0ce1e58cec71439e46680d4db188f11b3
-    # via -r scripts/interop-requirements.in
 zxing-cpp==3.1.1 \
     --hash=sha256:0343458a0fdf3f99c9dcff74dd09be6bae5d0d87a2f99de7876014317b939996 \
     --hash=sha256:037cbcaeb0cb12497fc15ced23f6b778fce8a6a1d1bbffddbffd004c6225744d \
@@ -102,4 +104,3 @@ zxing-cpp==3.1.1 \
     --hash=sha256:ec41a833dc1697e5360b5d9e2620fab1f3e92892b890c31fe85b50a10ca05217 \
     --hash=sha256:f4dae01111f323f46736fc21f05c14dcaaac06cea5fdc8fd994ba19f6f918c6e \
     --hash=sha256:fe8172f3c9b17f8fd40fba2ae0ba9728228caeff3587eabf5d99888891d02e62
-    # via -r scripts/interop-requirements.in

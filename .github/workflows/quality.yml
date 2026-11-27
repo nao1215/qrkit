@@ -1,0 +1,115 @@
+name: quality
+
+# Checks that measure the tests rather than run them:
+#
+# - docs: the tables in doc/interop.md and doc/testing.md match the results
+#   recorded in doc/interop/results.json and doc/mutation/baseline.json, and
+#   the figures qrkit draws of itself (gen/doc_images) are up to date.
+# - interop: zxing-cpp and zbar read a small random corpus qrkit writes, and
+#   qrkit reads what segno writes (see doc/interop.md). The nightly job runs
+#   a larger corpus.
+# - mutation: mutants of the modules a pull request changes; a survivor the
+#   baseline does not list fails the job. The weekly run covers every module.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  docs:
+    name: Generated docs match the results
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
+      - run: just deps
+      - run: just doc-check
+
+  interop:
+    name: Interop with zxing-cpp, zbar and segno
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install zbar, zxing-cpp and segno (hash-pinned)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libzbar0
+          python -m pip install --require-hashes --no-deps -r scripts/interop-requirements.txt
+      - run: just deps
+      - run: just interop 1 600
+        env:
+          PYTHON: python
+
+  mutation:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
+      - run: gleam deps download
+      - name: Pick the modules to mutate
+        id: files
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD -- 'src/*.gleam' 'src/**/*.gleam' | tr '\n' ' ')
+          elif [ "$EVENT" = push ]; then
+            files=$(git diff --name-only --diff-filter=AMR HEAD~1 HEAD -- 'src/*.gleam' 'src/**/*.gleam' | tr '\n' ' ')
+          else
+            files=all
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+      - name: Mutate the changed modules
+        if: steps.files.outputs.files != ''
+        env:
+          FILES: ${{ steps.files.outputs.files }}
+        run: |
+          set -e
+          if [ "$FILES" = all ]; then
+            gleam run -m mutation -- run --workers 4
+          else
+            # shellcheck disable=SC2086
+            gleam run -m mutation -- run --workers 4 $FILES
+          fi
+          gleam run -m mutation -- gate

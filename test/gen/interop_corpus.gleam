@@ -1,14 +1,16 @@
 //// Write random qrkit symbols for another decoder to read:
 //// `gleam run -m gen/interop_corpus` writes build/interop/qrkit.tsv, one
-//// symbol per line as `symbol \t level \t text (UTF-8 hex) \t rows`, rows
-//// being '1'/'0' strings joined by '/'. scripts/interop.py decodes them with
-//// zxing-cpp. Each run draws a new seed from the clock.
+//// symbol per line as `symbol \t level \t eci \t text (UTF-8 hex) \t rows`,
+//// eci being `26` or `-` and rows '1'/'0' strings joined by '/'.
+//// scripts/interop.py decodes them with zxing-cpp and zbar. Each run draws a
+//// new seed from the clock.
 
 import generators
 import gleam/bit_array
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import metamon
 import metamon/generator
@@ -21,12 +23,23 @@ const count: Int = 600
 const out_dir: String = "build/interop"
 
 pub fn main() -> Nil {
+  // Half the Standard QR symbols declare UTF-8 with ECI 26. Micro QR and
+  // rMQR have no ECI.
   let cases =
-    generator.tuple3(generators.text(), generators.symbol(), generators.ecc())
+    generator.tuple4(
+      generators.text(),
+      generators.symbol(),
+      generators.ecc(),
+      generator.bool(),
+    )
   let lines =
     draw(cases, metamon.random_seed(), count, [])
     |> list.filter_map(fn(input) {
-      let #(text, symbol, ecc) = input
+      let #(text, symbol, ecc, utf8) = input
+      let eci = case utf8, symbol {
+        True, qrkit.Standard -> Some(26)
+        _, _ -> None
+      }
       case
         qrkit.encode_with(
           text,
@@ -34,6 +47,7 @@ pub fn main() -> Nil {
             ..qrkit.default_encode_options(),
             symbol: symbol,
             error_correction: ecc,
+            eci:,
           ),
         )
       {
@@ -43,6 +57,7 @@ pub fn main() -> Nil {
             [
               symbol_name(symbol),
               ecc_letter(ecc),
+              eci_text(eci),
               bit_array.base16_encode(bit_array.from_string(text)),
               rows_text(qr.rows),
             ],
@@ -96,6 +111,13 @@ fn rows_text(rows: List(List(Bool))) -> String {
     |> string.concat
   })
   |> string.join("/")
+}
+
+fn eci_text(eci: Option(Int)) -> String {
+  case eci {
+    Some(value) -> int.to_string(value)
+    None -> "-"
+  }
 }
 
 fn ecc_letter(ecc: qrkit.ErrorCorrection) -> String {

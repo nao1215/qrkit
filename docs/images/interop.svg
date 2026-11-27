@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="730" height="332" viewBox="0 0 730 332" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="13">
+<style>text{fill:#1f2328}.track{fill:#eaeef2}.pass{fill:#1a7f37}.info{fill:#9a6700}@media (prefers-color-scheme:dark){text{fill:#e6edf3}.track{fill:#30363d}.pass{fill:#3fb950}.info{fill:#d29922}}</style>
+<text x="0" y="18" font-weight="600">Symbols read back as written (green: must be 100%, amber: recorded only)</text>
+<text x="0" y="49">qrkit → zxing-cpp: Standard QR</text>
+<rect class="track" x="360" y="37" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="37" width="300" height="16" rx="3"/>
+<text x="668" y="49">100.0%</text>
+<text x="0" y="75">qrkit → zxing-cpp: Standard QR, ECI 26</text>
+<rect class="track" x="360" y="63" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="63" width="300" height="16" rx="3"/>
+<text x="668" y="75">100.0%</text>
+<text x="0" y="101">qrkit → zxing-cpp: Micro QR</text>
+<rect class="track" x="360" y="89" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="89" width="300" height="16" rx="3"/>
+<text x="668" y="101">100.0%</text>
+<text x="0" y="127">qrkit → zxing-cpp: rMQR</text>
+<rect class="track" x="360" y="115" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="115" width="300" height="16" rx="3"/>
+<text x="668" y="127">100.0%</text>
+<text x="0" y="153">qrkit → zbar: Standard QR, ASCII</text>
+<rect class="track" x="360" y="141" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="141" width="300" height="16" rx="3"/>
+<text x="668" y="153">100.0%</text>
+<text x="0" y="179">qrkit → zbar: Standard QR, ECI 26</text>
+<rect class="track" x="360" y="167" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="167" width="300" height="16" rx="3"/>
+<text x="668" y="179">100.0%</text>
+<text x="0" y="205">qrkit → zbar: Standard QR, non-ASCII, no ECI</text>
+<rect class="track" x="360" y="193" width="300" height="16" rx="3"/>
+<rect class="info" x="360" y="193" width="205" height="16" rx="3"/>
+<text x="668" y="205">68.6%</text>
+<text x="0" y="231">segno → qrkit: Standard QR</text>
+<rect class="track" x="360" y="219" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="219" width="300" height="16" rx="3"/>
+<text x="668" y="231">100.0%</text>
+<text x="0" y="257">segno → qrkit: Standard QR, ECI 26</text>
+<rect class="track" x="360" y="245" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="245" width="300" height="16" rx="3"/>
+<text x="668" y="257">100.0%</text>
+<text x="0" y="283">segno → qrkit: Micro QR</text>
+<rect class="track" x="360" y="271" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="271" width="300" height="16" rx="3"/>
+<text x="668" y="283">100.0%</text>
+<text x="0" y="309">segno → qrkit: Structured Append</text>
+<rect class="track" x="360" y="297" width="300" height="16" rx="3"/>
+<rect class="pass" x="360" y="297" width="300" height="16" rx="3"/>
+<text x="668" y="309">100.0%</text>
+</svg>
