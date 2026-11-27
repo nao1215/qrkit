@@ -9,12 +9,14 @@ name: nightly-property
 #   it, and each draws a new random seed. A failure report prints its seed,
 #   so the case can be reproduced with metamon.with_seed and kept as a
 #   regression test.
-# - interop: differential testing against independent implementations.
-#   zxing-cpp must read random symbols qrkit writes, and qrkit.decode must
-#   read random symbols segno writes the way zxing-cpp reads them. A failure
-#   prints the input text.
+# - interop: differential testing against independent implementations
+#   (doc/interop.md) on a corpus five times the size pull requests use.
+#   zxing-cpp and zbar must read random symbols qrkit writes, and qrkit.decode
+#   must read random symbols segno writes the way zxing-cpp reads them. A
+#   failure prints the input text.
 #
-# Pull requests keep the normal count and skip interop so they stay fast.
+# Pull requests keep the normal count and run a small interop corpus in
+# quality.yml so they stay fast.
 
 on:
   schedule:
@@ -73,20 +75,18 @@ jobs:
         with:
           python-version: "3.12 || 3.15"
 
-      - name: Install zxing-cpp and segno (hash-pinned)
-        run: python -m pip install --require-hashes --no-deps -r scripts/interop-requirements.txt
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+
+      - name: Install zbar, zxing-cpp and segno (hash-pinned)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libzbar0
+          python -m pip install --require-hashes --no-deps -r scripts/interop-requirements.txt
 
       - name: Download dependencies
         run: gleam deps download
 
-      - name: zxing-cpp reads symbols qrkit writes
-        run: |
-          set -e
-          gleam run -m gen/interop_corpus
-          python scripts/interop.py zxing build/interop/qrkit.tsv
-
-      - name: qrkit.decode reads symbols segno writes
-        run: |
-          set -e
-          python scripts/interop.py segno build/interop/segno.tsv 2000
-          gleam run -m gen/interop_decode
+      - name: zxing-cpp and zbar read qrkit symbols; qrkit reads segno symbols
+        env:
+          PYTHON: python
+        run: just interop 5 3000

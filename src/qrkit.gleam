@@ -10,6 +10,7 @@
 //// }
 //// ```
 
+import gleam/bit_array
 import gleam/bool
 import gleam/float
 import gleam/int
@@ -37,7 +38,10 @@ import qrkit/internal/types
 // Encoding -------------------------------------------------------------------
 
 /// How much of the symbol can be damaged and still be read: about 7%
-/// (`Low`), 15% (`Medium`), 25% (`Quartile`) or 30% (`High`).
+/// (`Low`), 15% (`Medium`), 25% (`Quartile`) or 30% (`High`). A higher level
+/// needs more modules for the same text.
+///
+/// ![The same URL at Low and Medium is 25 by 25 modules, at Quartile 29 by 29, at High 33 by 33](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/error-correction.svg)
 pub type ErrorCorrection {
   Low
   Medium
@@ -46,7 +50,9 @@ pub type ErrorCorrection {
 }
 
 /// The symbol family: square QR codes, the smaller Micro QR (M1..M4), or
-/// rectangular rMQR.
+/// rectangular rMQR. Many phone apps read only Standard QR.
+///
+/// ![The digits 12345678 as Standard QR (21 by 21 modules), Micro QR (13 by 13) and rMQR (27 by 11)](https://raw.githubusercontent.com/nao1215/qrkit/main/docs/images/symbols.svg)
 pub type Symbol {
   Standard
   Micro
@@ -923,8 +929,8 @@ fn encode_addr_spec(value: String) -> String {
   // separator between addr-specs, and the `some-delims` set
   // (`!` / `$` / `'` / `(` / `)` / `*` / `+` / `;` / `:`) are kept
   // literal; only characters that would actually break URI parsing
-  // in this position — space, `?`, `&`, `#`, `<`, `>`, control bytes,
-  // and any non-ASCII codepoint — are percent-encoded. Encoding goes
+  // in this position (space, `?`, `&`, `#`, `<`, `>`, control bytes,
+  // and any non-ASCII codepoint) are percent-encoded. Encoding goes
   // codepoint-by-codepoint so the same output is produced on both the
   // Erlang and JavaScript targets, and so multi-byte UTF-8 sequences
   // are expanded to one `%XX` per UTF-8 byte (RFC 3986 §2.5).
@@ -938,7 +944,7 @@ fn encode_addr_spec_codepoint(codepoint: UtfCodepoint) -> String {
   let cp = string.utf_codepoint_to_int(codepoint)
   case cp < 128 && is_addr_spec_literal_ascii(cp) {
     True -> codepoint_to_string(codepoint)
-    False -> percent_encode_codepoint_utf8(cp)
+    False -> percent_encode_utf8(codepoint_to_string(codepoint))
   }
 }
 
@@ -994,23 +1000,15 @@ fn is_some_delim(cp: Int) -> Bool {
   || cp == 0x3A
 }
 
-fn percent_encode_codepoint_utf8(cp: Int) -> String {
-  // Expand the codepoint to its UTF-8 bytes (RFC 3629) and emit
-  // `%XX` for each. ASCII (`cp < 0x80`) falls through the 1-byte
-  // branch so the same routine handles both ASCII characters that
-  // need escaping (e.g. space → `%20`) and non-ASCII codepoints.
-  case cp < 0x80, cp < 0x800, cp < 0x10000 {
-    True, _, _ -> to_hex_byte(cp)
-    _, True, _ -> to_hex_byte(0xC0 + cp / 64) <> to_hex_byte(0x80 + cp % 64)
-    _, _, True ->
-      to_hex_byte(0xE0 + cp / 4096)
-      <> to_hex_byte(0x80 + cp / 64 % 64)
-      <> to_hex_byte(0x80 + cp % 64)
-    _, _, _ ->
-      to_hex_byte(0xF0 + cp / 262_144)
-      <> to_hex_byte(0x80 + cp / 4096 % 64)
-      <> to_hex_byte(0x80 + cp / 64 % 64)
-      <> to_hex_byte(0x80 + cp % 64)
+/// `%XX` for each UTF-8 byte of `text` (RFC 3986 §2.5).
+fn percent_encode_utf8(text: String) -> String {
+  percent_encode_bytes(bit_array.from_string(text), "")
+}
+
+fn percent_encode_bytes(bytes: BitArray, acc: String) -> String {
+  case bytes {
+    <<byte, rest:bytes>> -> percent_encode_bytes(rest, acc <> to_hex_byte(byte))
+    _ -> acc
   }
 }
 

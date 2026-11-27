@@ -5,3 +5,4 @@ erl_crash.dump
 .codex
 .claude
 doc/reference/*
+__pycache__/

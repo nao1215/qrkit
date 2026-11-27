@@ -1,48 +1,79 @@
 # Testing
 
-`just ci` runs everything below except the nightly jobs. Tests run on the Erlang and JavaScript targets, on the Gleam floor (1.14.0, OTP 27, Node 22) and on the latest Gleam 1.x.
+![Five layers of tests and when each runs: examples, properties, snapshots, other readers and mutants](../docs/images/test-layers.svg)
 
-## Examples and unit tests
+`just ci` runs the tests on the Erlang and JavaScript targets. CI also runs them on the Gleam floor (1.14.0, OTP 27, Node 22) and on the latest Gleam 1.x.
 
-`test/qrkit_test.gleam` checks module matrices, capacities and errors of the encoder against values from ISO/IEC 18004 and ISO/IEC 23941, and `test/decode_test.gleam` checks the decoder. `test/readme_examples_test.gleam` runs every README snippet. Each fixed bug keeps its reproduction in a `test/regression_*_test.gleam` file.
+| Layer | Bug it catches | Where |
+|---|---|---|
+| Examples and regressions | A matrix, capacity or error that differs from ISO/IEC 18004 or ISO/IEC 23941 | `test/qrkit_test.gleam`, `test/decode_test.gleam`, `test/regression_*_test.gleam` |
+| README examples | A README snippet that no longer compiles or runs | `test/readme_examples_test.gleam` |
+| Properties | An input that does not round-trip | `test/property_test.gleam` |
+| Metamorphic relations | Two runs that disagree when one input is a transformed copy of the other | `test/metamorphic_test.gleam` |
+| Snapshots | A change in terminal or SVG output | `test/snapshot_test.gleam` |
+| Fixed symbols from segno | A mask pattern or character-set guess that only round-trips with qrkit's own encoder | `test/fixtures/segno_symbols.tsv`, written by `scripts/interop.py fixtures` |
+| Other readers | A symbol that only qrkit can read | `just interop`, [interop.md](interop.md) |
+| Mutants | Code the tests run but do not check | `just mutation`, below |
 
-## Generated properties
+## Properties and relations
 
-`test/property_test.gleam` uses metamon. Encoding then decoding returns the input for every symbol family and error correction level; one flipped module is always corrected; the decoder returns a value instead of crashing for random grids and for heavily damaged symbols. The generators in `test/generators.gleam` mix ASCII, digits, kana, kanji, Latin-1, an emoji and newlines so every mode and segment boundary is reached.
+The generators in `test/generators.gleam` mix ASCII, digits, kana, kanji, Latin-1, an emoji and newlines so every mode and segment boundary is reached. `test/property_test.gleam` checks that encoding then decoding returns the input for every symbol family and level, that one flipped module is corrected, and that random or damaged grids give an error instead of a crash.
 
-## Metamorphic relations
+`test/metamorphic_test.gleam` checks relations where the exact output cannot be written down:
 
-`test/metamorphic_test.gleam` checks relations between two runs where the exact output cannot be written down:
+- A longer text never gives a smaller symbol, including across the version 9/10 and 26/27 boundaries where the character-count fields get wider.
+- A higher error correction level never gives a smaller symbol.
+- A turned, mirrored or padded symbol decodes to the same text, version, level and mask.
 
-- Appending a character never yields a smaller symbol, for short payloads in every family and for 150-700 character payloads that cross the version 9/10 and 26/27 boundaries of Standard QR, where the character-count fields get wider.
-- Raising the error correction level one step never yields a smaller symbol.
-- The decoder reads the same text after a turn by 90, 180 or 270 degrees, a left-right, top-bottom or diagonal mirror and an added light quiet zone, for every symbol family.
-- An added quiet zone does not change the version, family, level or mask the decoder reports, and no codeword needs correcting.
+The nightly job runs the suite ten times with `METAMON_RUNS_MULTIPLIER=10`, each pass with a new seed. A failure prints its seed; replay it with `metamon.with_seed` and keep it as a regression test.
 
 ## Snapshots
 
-`test/snapshot_test.gleam` uses birdie for the terminal and SVG renderers: Standard QR with Byte, Kanji and Numeric segments, Micro QR and rMQR. The SVG snapshot puts one path command per line so that a changed module is a changed line. Every snapshot symbol is also decoded, so an accepted snapshot is known to read back to its input. Review a changed snapshot with `gleam run -m birdie` before accepting it; the accepted files live in `test/birdie_snapshots/`.
-
-## Differential testing
-
-The nightly `interop` job in `.github/workflows/nightly-property.yml` compares qrkit with independent implementations through `scripts/interop.py`. zxing-cpp must read random symbols qrkit writes (`test/gen/interop_corpus.gleam`), and `qrkit.decode` must read random symbols segno writes the way zxing-cpp reads them (`dev/gen/interop_decode.gleam`). The Python packages are installed from `scripts/interop-requirements.txt` with `pip --require-hashes`.
-
-## Nightly runs
-
-The nightly `property` job runs the whole suite ten times with `METAMON_RUNS_MULTIPLIER=10`, each pass with a new seed. A failure report prints its seed, so the case can be replayed with `metamon.with_seed` and kept as a regression test.
+`test/snapshot_test.gleam` keeps birdie snapshots of the terminal and SVG output. The SVG snapshot has one path command per line, so a changed module is a changed line. Every snapshot symbol is also decoded, so an accepted snapshot is known to read back. Review changes with `gleam run -m birdie`.
 
 ## Mutation testing
 
-There is no mutation testing tool for Gleam, so `gleam_mutate.py` (from the mutation-testing lab in nao1215/debimate) is run by hand on a copy of the project. It rewrites one operator or boolean result at a time (`==`/`!=`, `&&`/`||`, float comparisons, `-> True`/`-> False`, a dropped `!`) and runs `gleam test` on the Erlang target. The score is killed / (killed + lived).
+![A mutant changes one operator in a copy of the source; if every test still passes, the mutant lives and points at code no test checks](../docs/images/mutation.svg)
 
-| Date | Files | Killed | Lived | Score |
-|---|---|---:|---:|---:|
-| 2026-11-19 | every module under `src/` | 215 | 51 | 80.8% |
+No mutation testing tool exists for Gleam, so `dev/mutation.gleam` parses each module with [glance](https://hex.pm/packages/glance), changes one operator or boolean at a time, and runs `gleam test --target erlang` in a copy of the project:
 
-The first run left the three PNG mutants alive (bit packing and CRC-32); `png_renderer_writes_every_module_and_valid_checksums_test` now reads the scanlines back and checks the IEND checksum, and kills them. The remaining survivors, grouped:
+- `==` and `!=` swapped, `<` and `<=`, `>` and `>=` moved across the boundary, for integers and floats
+- `&&` and `||` swapped, `!` dropped, `True` and `False` swapped in expressions
+- `+` and `-` swapped, `*` and `/` swapped, `%` changed to `*`, for integers and floats
 
-- `decode.guess_shift_jis` (14): Byte data without an ECI that is valid UTF-8 and Shift JIS at once. qrkit always writes Kanji mode for such text, so only symbols from other writers reach it; the nightly interop job reads segno symbols.
-- The data masks 1 and 5 of Standard QR and mask 2 of Micro QR (3): the encoder and decoder share `mask_at`, so an inverted pattern still round-trips. Only the nightly zxing-cpp check would see it.
-- `micro.mode_supported` (3): the segmenter picks a supported mode before this check runs, so returning False only changes which equivalent path is taken.
-- `content.is_some_delim` and `is_unreserved_punct` (7): turning them off percent-encodes characters that may stay literal in a mailto URI. The result is still a valid URI, and no test pins the literal form.
-- Range checks written as `a && b` or `a || b` on values the caller has already validated (`version.is_valid`, `dimensions`, `validate_version`, `finder_overlap` and others).
+`src/qrkit/internal/kanji_table.gleam` is generated data and is left out. The score is killed / (killed + lived + timed out), counting a timed-out mutant as killed. A mutant that does not compile is not counted.
+
+<!-- mutation:start -->
+| Module | Killed | Lived | Timed out | Score |
+|---|---:|---:|---:|---:|
+| `qrkit` | 59 | 6 | 0 | 90.8% |
+| `qrkit/internal/bitstream` | 11 | 0 | 0 | 100.0% |
+| `qrkit/internal/decode` | 101 | 22 | 0 | 82.1% |
+| `qrkit/internal/format_info` | 14 | 1 | 0 | 93.3% |
+| `qrkit/internal/mask` | 67 | 10 | 0 | 87.0% |
+| `qrkit/internal/matrix` | 27 | 1 | 0 | 96.4% |
+| `qrkit/internal/micro` | 113 | 21 | 0 | 84.3% |
+| `qrkit/internal/mode` | 35 | 6 | 0 | 85.4% |
+| `qrkit/internal/png` | 15 | 0 | 1 | 100.0% |
+| `qrkit/internal/reed_solomon` | 49 | 9 | 0 | 84.5% |
+| `qrkit/internal/rmqr` | 142 | 22 | 0 | 86.6% |
+| `qrkit/internal/segment` | 17 | 14 | 0 | 54.8% |
+| `qrkit/internal/standard` | 111 | 6 | 0 | 94.9% |
+| `qrkit/internal/structured_append` | 12 | 6 | 0 | 66.7% |
+| `qrkit/internal/svg` | 14 | 0 | 1 | 100.0% |
+| `qrkit/internal/terminal` | 1 | 0 | 0 | 100.0% |
+| `qrkit/internal/util` | 8 | 0 | 0 | 100.0% |
+| `qrkit/internal/version` | 11 | 1 | 1 | 92.3% |
+| all | 807 | 125 | 3 | 86.6% |
+<!-- mutation:end -->
+
+Pull requests mutate the modules they change and fail on a survivor that `doc/mutation/baseline.json` does not list, matched by module, function, mutator, line text and the column in that text. The weekly run mutates every module. The property tests draw a new seed each run, so a survivor is run three times before it counts. After a full run, `just mutation-record` updates the baseline and the table above.
+
+The survivors left in the baseline, grouped:
+
+- Mask patterns (10): `(row + col) % 2` and `(row - col) % 2` have the same parity, and so do the other mask formulas with `+` changed to `-`. No test can tell them apart.
+- Shift JIS guess for Byte data without an ECI (16): the thresholds of a heuristic that copies zxing-cpp's. The 143 Byte fixtures agree with zxing-cpp, but none sits exactly on these edges with a different answer.
+- Ties (16): `<` against `<=` between two costs or mask penalties only changes which of two equally good choices wins. The symbol still decodes, and the interop job reads it with other readers.
+- Reserved flags (11): modules marked reserved by an earlier call, or set light in an area a later step overwrites.
+- Checked values (33): range checks on values the caller has already validated or clamped, such as versions, ECI designators, denominators and years.
+- Other (39): loop bounds and index arithmetic whose change gives the same output, such as the symmetric alignment pattern, terminator bits that padding absorbs, and the position in an error for a character the segmenter never sends to that mode.

@@ -9,6 +9,7 @@ import gleeunit
 import gleeunit/should
 import qrkit
 import qrkit/internal/reed_solomon
+import simplifile
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -1755,4 +1756,136 @@ pub fn ragged_rows_render_as_a_rectangle_test() -> Nil {
   assert qrkit.to_svg(ragged, options) == qrkit.to_svg(padded, options)
   assert qrkit.to_terminal(ragged, style: qrkit.HalfBlocks, margin: 1)
     == qrkit.to_terminal(padded, style: qrkit.HalfBlocks, margin: 1)
+}
+
+// The expected strings come from Python's urllib.parse.quote with the
+// RFC 6068 addr-spec characters marked safe, an implementation independent
+// of qrkit's.
+pub fn email_to_percent_encodes_every_utf8_length_test() -> Nil {
+  qrkit.email(to: "ü日😀 x@例.jp", subject: "S", body: "B")
+  |> should.equal(
+    "mailto:%C3%BC%E6%97%A5%F0%9F%98%80%20x@%E4%BE%8B.jp?subject=S&body=B",
+  )
+  // The first and last codepoint of the 2-, 3- and 4-byte UTF-8 ranges.
+  // Built from codepoints: Gleam 1.14 writes "\u{FFFF}" into Erlang source
+  // that OTP 27 rejects.
+  let assert Ok(edges) =
+    [0xE9, 0x0800, 0xFFFF, 0x10000]
+    |> list.try_map(string.utf_codepoint)
+  qrkit.email(to: string.from_utf_codepoints(edges), subject: "S", body: "B")
+  |> should.equal(
+    "mailto:%C3%A9%E0%A0%80%EF%BF%BF%F0%90%80%80?subject=S&body=B",
+  )
+}
+
+pub fn email_to_keeps_addr_spec_characters_literal_test() -> Nil {
+  qrkit.email(to: "!$'()*+;:@,x", subject: "S", body: "B")
+  |> should.equal("mailto:!$'()*+;:@,x?subject=S&body=B")
+  // `/`, `[`, `` ` `` and `{` sit next to the digit and letter ranges.
+  qrkit.email(to: "AZaz09/[`{-._~", subject: "S", body: "B")
+  |> should.equal("mailto:AZaz09%2F%5B%60%7B-._~?subject=S&body=B")
+}
+
+// Version information (ISO/IEC 18004 §7.10) as segno draws it: the 6x3 block
+// left of the top-right finder and its transpose above the bottom-left one.
+// Version 7 is 0x07C94 in Annex D, read from the least significant bit.
+pub fn version_information_matches_segno_test() -> Nil {
+  [
+    #(7, ["001", "010", "010", "011", "111", "000"]),
+    #(20, ["011", "001", "011", "001", "001", "010"]),
+    #(40, ["100", "101", "100", "011", "000", "101"]),
+  ]
+  |> list.each(fn(case_) {
+    let #(version, block) = case_
+    let assert Ok(qr) =
+      qrkit.encode_with(
+        "1",
+        qrkit.EncodeOptions(
+          ..qrkit.default_encode_options(),
+          version: Some(version),
+        ),
+      )
+    let bits = fn(cells) {
+      list.map(cells, fn(dark) {
+        case dark {
+          True -> "1"
+          False -> "0"
+        }
+      })
+      |> string.concat
+    }
+    let top_right =
+      list.take(qr.rows, 6)
+      |> list.map(fn(row) {
+        list.drop(row, qr.width - 11) |> list.take(3) |> bits
+      })
+    let bottom_left =
+      [0, 1, 2, 3, 4, 5]
+      |> list.map(fn(col) {
+        list.drop(qr.rows, qr.width - 11)
+        |> list.take(3)
+        |> list.map(fn(row) {
+          let assert Ok(dark) = list.drop(row, col) |> list.first
+          dark
+        })
+        |> bits
+      })
+    #(version, top_right, bottom_left) |> should.equal(#(version, block, block))
+  })
+}
+
+// ECI designators take 1, 2 or 3 bytes below 128, 16 384 and 1 000 000
+// (ISO/IEC 18004 §7.4.2.1); each boundary must survive a round trip.
+pub fn eci_designators_round_trip_at_every_length_test() -> Nil {
+  [0, 127, 128, 16_383, 16_384, 999_999]
+  |> list.each(fn(designator) {
+    let assert Ok(qr) =
+      qrkit.encode_with(
+        "eci",
+        qrkit.EncodeOptions(
+          ..qrkit.default_encode_options(),
+          eci: Some(designator),
+        ),
+      )
+    let assert Ok(decoded) = qrkit.decode(qr.rows)
+    #(designator, decoded.eci, decoded.text)
+    |> should.equal(#(designator, Some(designator), "eci"))
+  })
+}
+
+// test/fixtures/hello.png was checked outside qrkit: Python's zlib
+// decompresses its IDAT, which verifies the Adler-32 trailer, every chunk
+// CRC matches zlib.crc32, and Pillow opens it as a 232x232 palette image.
+pub fn png_matches_the_verified_fixture_test() -> Nil {
+  let assert Ok(expected) = simplifile.read_bits("test/fixtures/hello.png")
+  let assert Ok(qr) = qrkit.encode("hello")
+  qrkit.to_png(qr, qrkit.default_image_options()) |> should.equal(expected)
+}
+
+// Kanji mode subtracts 0x8140 below Shift JIS 0x9FFC and 0xC140 from 0xE040
+// (ISO/IEC 18004 §7.4.6). These characters sit on both edges of both ranges:
+// U+3000 is 0x8140, 滌 0x9FFC, 漾 0xE040 and 熙 0xEAA4.
+pub fn kanji_mode_round_trips_at_the_shift_jis_range_edges_test() -> Nil {
+  ["\u{3000}", "滌", "漾", "熙", "\u{3000}滌漾熙"]
+  |> list.each(fn(text) {
+    let assert Ok(qr) = qrkit.encode(text)
+    let assert Ok(decoded) = qrkit.decode(qr.rows)
+    #(text, decoded.text) |> should.equal(#(text, text))
+  })
+}
+
+// RFC 2426 §2.6: a content line longer than 75 octets is folded; one of
+// exactly 75 is not.
+pub fn vcard_folds_only_lines_longer_than_75_octets_test() -> Nil {
+  let line = fn(name) {
+    qrkit.vcard_to_string(qrkit.vcard(name))
+    |> string.split("\r\n")
+    |> list.filter(fn(l) {
+      string.starts_with(l, "FN:") || string.starts_with(l, " ")
+    })
+  }
+  line(string.repeat("a", 72))
+  |> should.equal(["FN:" <> string.repeat("a", 72)])
+  line(string.repeat("a", 73))
+  |> should.equal(["FN:" <> string.repeat("a", 72), " a"])
 }
