@@ -10,7 +10,8 @@
 ////   gleam run -m mutation -- gate
 ////     Fail on a survivor in build/mutation/results.json that
 ////     doc/mutation/baseline.json does not list. Survivors are matched by
-////     module, function, mutator and line text, so moved code still matches.
+////     module, function, mutator, line text and the column in that text, so
+////     moved code still matches.
 ////   gleam run -m mutation -- baseline
 ////     Record build/mutation/results.json as the baseline and rewrite the
 ////     table in doc/testing.md.
@@ -89,6 +90,7 @@ type Mutant {
     replacement: String,
     line: Int,
     text: String,
+    column: Int,
     function: String,
     mutator: String,
   )
@@ -104,7 +106,7 @@ fn mutants(file: String) -> List(Mutant) {
     list.flat_map(function.body, statement_edits(_, bytes))
     |> list.map(fn(edit) {
       let #(offset, length, replacement) = edit
-      let #(line, text) = line_at(bytes, offset)
+      let #(line, text, column) = line_at(bytes, offset)
       let assert Ok(original) = bit_array.slice(bytes, offset, length)
       let assert Ok(original) = bit_array.to_string(original)
       Mutant(
@@ -115,6 +117,7 @@ fn mutants(file: String) -> List(Mutant) {
         replacement:,
         line:,
         text:,
+        column:,
         function: function.name,
         mutator: case replacement {
           "" -> "drop " <> original
@@ -309,16 +312,20 @@ fn location(expression: glance.Expression) -> glance.Span {
   }
 }
 
-/// The 1-based line number and trimmed text of the line holding `offset`.
-fn line_at(source: BitArray, offset: Int) -> #(Int, String) {
+/// The 1-based line number, the trimmed text of the line holding `offset`,
+/// and the byte column of `offset` in that trimmed text. The column tells two
+/// changes of the same operator on one line apart, and does not depend on the
+/// indentation.
+fn line_at(source: BitArray, offset: Int) -> #(Int, String, Int) {
   let assert Ok(before) = bit_array.slice(source, 0, offset)
   let assert Ok(before) = bit_array.to_string(before)
   let lines = string.split(before, "\n")
   let number = list.length(lines)
+  let assert Ok(start) = list.last(lines)
   let assert Ok(source) = bit_array.to_string(source)
   let assert Ok(text) =
     string.split(source, "\n") |> list.drop(number - 1) |> list.first
-  #(number, string.trim(text))
+  #(number, string.trim(text), string.byte_size(string.trim_start(start)))
 }
 
 fn apply(source: BitArray, mutant: Mutant) -> String {
@@ -345,6 +352,7 @@ type Row {
   Row(
     file: String,
     line: Int,
+    column: Int,
     function: String,
     mutator: String,
     text: String,
@@ -426,6 +434,7 @@ fn run(workers: Int, files: List(String)) -> Int {
         |> list.sort(fn(a, b) {
           string.compare(a.file, b.file)
           |> order_then(int.compare(a.line, b.line))
+          |> order_then(int.compare(a.column, b.column))
           |> order_then(string.compare(a.mutator, b.mutator))
         })
       let _cleaned = simplifile.delete(root)
@@ -479,6 +488,7 @@ fn run_mutant(project: String, mutant: Mutant, timeout: Int) -> Row {
   Row(
     file: mutant.file,
     line: mutant.line,
+    column: mutant.column,
     function: mutant.function,
     mutator: mutant.mutator,
     text: mutant.text,
@@ -533,6 +543,7 @@ fn row_to_json(row: Row) -> json.Json {
   json.object([
     #("file", json.string(row.file)),
     #("line", json.int(row.line)),
+    #("column", json.int(row.column)),
     #("function", json.string(row.function)),
     #("mutator", json.string(row.mutator)),
     #("text", json.string(row.text)),
@@ -543,6 +554,7 @@ fn row_to_json(row: Row) -> json.Json {
 fn row_decoder() -> decode.Decoder(Row) {
   use file <- decode.field("file", decode.string)
   use line <- decode.field("line", decode.int)
+  use column <- decode.field("column", decode.int)
   use function <- decode.field("function", decode.string)
   use mutator <- decode.field("mutator", decode.string)
   use text <- decode.field("text", decode.string)
@@ -553,7 +565,7 @@ fn row_decoder() -> decode.Decoder(Row) {
     "TIMED_OUT" -> TimedOut
     _ -> CompileError
   }
-  decode.success(Row(file:, line:, function:, mutator:, text:, status:))
+  decode.success(Row(file:, line:, column:, function:, mutator:, text:, status:))
 }
 
 type Results {
@@ -619,19 +631,21 @@ fn write_results(files: List(String), rows: List(Row)) -> Nil {
   Nil
 }
 
+/// One mutant per line keeps the baseline diff readable. Each row is
+/// serialised on its own, so a line of source holding `},{` stays intact.
 fn results_json(files: List(String), rows: List(Row)) -> String {
-  let body =
-    json.object([
-      #("files", json.array(files, json.string)),
-      #("mutants", json.array(rows, row_to_json)),
-    ])
-    |> json.to_string
-  // One mutant per line keeps the baseline diff readable.
-  string.replace(body, "},{", "},\n{") <> "\n"
+  "{\"files\":"
+  <> json.to_string(json.array(files, json.string))
+  <> ",\"mutants\":[\n"
+  <> string.join(
+    list.map(rows, fn(row) { json.to_string(row_to_json(row)) }),
+    ",\n",
+  )
+  <> "\n]}\n"
 }
 
-fn key(row: Row) -> #(String, String, String, String) {
-  #(row.file, row.function, row.mutator, row.text)
+fn key(row: Row) -> #(String, String, String, String, Int) {
+  #(row.file, row.function, row.mutator, row.text, row.column)
 }
 
 fn gate() -> Int {

@@ -85,9 +85,24 @@ fn check() -> Int {
   let #(zbar_version, zbar) = read_lines("build/interop/zbar.tsv")
   let #(segno_version, segno) = read_lines("build/interop/segno.tsv")
   let checks = [
-    tally("qrkit", "zxing-cpp", list.map(zxing, read_back(_, False))),
-    tally("qrkit", "zbar", list.map(zbar, read_back(_, True))),
-    tally("segno", "qrkit", list.map(segno, decode_segno)),
+    tally(
+      "qrkit",
+      "zxing-cpp",
+      ["Standard QR", "Standard QR, ECI 26", "Micro QR", "rMQR"],
+      list.map(zxing, read_back(_, False)),
+    ),
+    tally(
+      "qrkit",
+      "zbar",
+      ["Standard QR, ASCII", "Standard QR, ECI 26", recorded_only],
+      list.map(zbar, read_back(_, True)),
+    ),
+    tally(
+      "segno",
+      "qrkit",
+      ["Standard QR", "Micro QR", "Structured Append"],
+      list.map(segno, decode_segno),
+    ),
   ]
   let results =
     Results(
@@ -129,9 +144,13 @@ fn read_lines(path: String) -> #(String, List(List(String))) {
   #(string.drop_start(header, 2), list.map(rest, string.split(_, "\t")))
 }
 
+/// `required` lists the groups every corpus must reach. A group that never
+/// appears fails the run: it would mean a symbol family went untested, for
+/// example because the generator started rejecting it.
 fn tally(
   writer: String,
   reader: String,
+  required: List(String),
   outcomes: List(Outcome),
 ) -> #(Check, List(String)) {
   let groups =
@@ -154,7 +173,22 @@ fn tally(
         False -> Ok("MISMATCH " <> reader <> " " <> o.group <> ": " <> o.report)
       }
     })
-  #(Check(writer:, reader:, groups:), failures)
+  let missing =
+    list.filter_map(required, fn(name) {
+      case list.any(groups, fn(group) { group.name == name }) {
+        True -> Error(Nil)
+        False ->
+          Ok(
+            "MISSING "
+            <> reader
+            <> " read no "
+            <> writer
+            <> " symbols: "
+            <> name,
+          )
+      }
+    })
+  #(Check(writer:, reader:, groups:), list.append(missing, failures))
 }
 
 /// A qrkit symbol read by zxing-cpp or zbar:

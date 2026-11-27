@@ -91,11 +91,17 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
         run: |
           if [ "$EVENT" = pull_request ]; then
             files=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD -- 'src/*.gleam' 'src/**/*.gleam' | tr '\n' ' ')
           elif [ "$EVENT" = push ]; then
-            files=$(git diff --name-only --diff-filter=AMR HEAD~1 HEAD -- 'src/*.gleam' 'src/**/*.gleam' | tr '\n' ' ')
+            # Every commit of the push, not only the last one. A new branch
+            # has no previous tip, so fall back to the last commit.
+            case "$BEFORE" in
+              ""|0000000000000000000000000000000000000000) BEFORE=HEAD~1 ;;
+            esac
+            files=$(git diff --name-only --diff-filter=AMR "$BEFORE" HEAD -- 'src/*.gleam' 'src/**/*.gleam' | tr '\n' ' ')
           else
             files=all
           fi
