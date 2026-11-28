@@ -1,0 +1,13 @@
+# Line coverage of the Erlang test run; see .github/workflows/coverage.yml.
+coverage:
+  paths:
+    - build/coverage/lcov.info
+diff:
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}
+comment:
+  if: is_pull_request
+report:
+  if: is_default_branch
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}

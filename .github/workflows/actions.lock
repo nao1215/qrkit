@@ -11,6 +11,10 @@ workflows:
     '.github/workflows/codeql.yml':
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'github/codeql-action@33d7b85da1a04171e211befe2c739303b9a4c066'
+    '.github/workflows/coverage.yml':
+        - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
+        - 'erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124'
+        - 'k1low/octocov-action@a167dc0dee441b7ffc45e1b862ab55ec0d87f278'
     '.github/workflows/gitleaks.yml':
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e'
@@ -79,6 +83,11 @@ dependencies:
         commit: 'sha1-3d3c42e5aac5ba805825da76410c181273ba90b1'
         owner_id: 44036562
         repo_id: 197814629
+    'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3':
+        ref: 'v9.0.0'
+        commit: 'sha1-3a2844b7e9c422d3c10d287c895573f7108da1b3'
+        owner_id: 44036562
+        repo_id: 205262760
     'actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e':
         ref: 'v7.0.0'
         commit: 'sha1-b7ad1dad31e06c5925ef5d2fc7ad053ef454303e'
@@ -142,6 +151,19 @@ dependencies:
         commit: 'sha1-e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e'
         owner_id: 90395851
         repo_id: 242854909
+    'k1low/gh-setup@5fb38d34ea857e5a942b6fe10f1723e55055f6c0':
+        ref: 'v1.11.9'
+        commit: 'sha1-5fb38d34ea857e5a942b6fe10f1723e55055f6c0'
+        owner_id: 57114
+        repo_id: 600697415
+    'k1low/octocov-action@a167dc0dee441b7ffc45e1b862ab55ec0d87f278':
+        ref: 'v1.5.2'
+        commit: 'sha1-a167dc0dee441b7ffc45e1b862ab55ec0d87f278'
+        owner_id: 57114
+        repo_id: 364387194
+        uses:
+            - 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3'
+            - 'k1low/gh-setup@5fb38d34ea857e5a942b6fe10f1723e55055f6c0'
     'ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e':
         ref: 'v2.5.0'
         commit: 'sha1-fa7117db83c52d787ae5a89f350999701505d78e'

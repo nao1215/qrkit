@@ -1,0 +1,49 @@
+name: Coverage
+
+# Line coverage of the Erlang test run, measured by
+# `gleam run -m metamon/mutation -- coverage` (Erlang's `cover`, with the line
+# numbers of the Gleam source) and reported by octocov. The badge is served by
+# nao1215/octocovs-central-repo, which collects the report artifact of main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # octocov reads and writes the Actions-artifact datastore and comments on
+    # pull requests.
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+      # `gleam run -m` of a dependency module compiles only the dependencies,
+      # so the package and its tests are built first for `cover` to load.
+      - name: Build
+        run: gleam build --target erlang
+      - name: Measure line coverage
+        run: gleam run -m metamon/mutation -- coverage
+      - uses: k1LoW/octocov-action@a167dc0dee441b7ffc45e1b862ab55ec0d87f278 # v1.5.2
+        with:
+          config: .octocov.yml

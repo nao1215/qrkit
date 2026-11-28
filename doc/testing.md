@@ -31,6 +31,10 @@ The nightly job runs the suite ten times with `METAMON_RUNS_MULTIPLIER=10`, each
 
 `test/snapshot_test.gleam` keeps birdie snapshots of the terminal and SVG output. The SVG snapshot has one path command per line, so a changed module is a changed line. Every snapshot symbol is also decoded, so an accepted snapshot is known to read back. Review changes with `gleam run -m birdie`.
 
+## Coverage
+
+`gleam run -m metamon/mutation -- coverage` (`just coverage`) runs the tests on the Erlang target with every module under `src/` measured and writes `build/coverage/lcov.info`; run `gleam build --target erlang` first, since `gleam run -m` of a dependency module does not compile the package. `.github/workflows/coverage.yml` reports it with octocov on pull requests and main.
+
 ## Mutation testing
 
 ![A mutant changes one operator in a copy of the source; if every test still passes, the mutant lives and points at code no test checks](../docs/images/mutation.svg)
