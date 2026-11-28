@@ -1,6 +1,7 @@
 # qrkit
 
 [![CI](https://github.com/nao1215/qrkit/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/ci.yml)
+![Coverage](https://raw.githubusercontent.com/nao1215/octocovs-central-repo/main/badges/nao1215/qrkit/coverage.svg)
 [![Gitleaks](https://github.com/nao1215/qrkit/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/gitleaks.yml)
 [![Trivy](https://github.com/nao1215/qrkit/actions/workflows/trivy.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/trivy.yml)
 [![quality](https://github.com/nao1215/qrkit/actions/workflows/quality.yml/badge.svg)](https://github.com/nao1215/qrkit/actions/workflows/quality.yml)
